@@ -1,0 +1,138 @@
+                    {showReconnectButton && (
+                        <View style={styles.adminOverlay}>
+                            <TouchableOpacity
+                                style={styles.adminCloseButton}
+                                onPress={() => setShowReconnectButton(false)}
+                            >
+                                <Text style={styles.adminCloseText}>✕</Text>
+                            </TouchableOpacity>
+
+                            <ScrollView style={styles.adminScroll} contentContainerStyle={styles.adminScrollContent}>
+                                <Text style={styles.adminTitle}>KIOSK CONTROL PANEL</Text>
+
+                                <View style={styles.adminSummaryRow}>
+                                    <View style={styles.adminSummaryCard}>
+                                        <Text style={styles.adminSummaryLabel}>Members in cooldown window</Text>
+                                        <Text style={styles.adminSummaryValue}>{memberCount}</Text>
+                                    </View>
+                                    <View style={styles.adminSummaryCard}>
+                                        <Text style={styles.adminSummaryLabel}>Still have votes left</Text>
+                                        <Text style={styles.adminSummaryValue}>{membersWithVotesRemaining}</Text>
+                                    </View>
+                                    <View style={styles.adminSummaryCard}>
+                                        <Text style={styles.adminSummaryLabel}>Completed both votes</Text>
+                                        <Text style={styles.adminSummaryValue}>{membersFullyUsed}</Text>
+                                    </View>
+                                </View>
+
+                                <View style={styles.adminRow}>
+                                    <View style={[styles.adminSection, { flex: 1 }]}>
+                                        <Text style={styles.adminSectionTitle}>Spotify health</Text>
+                                        <Text style={styles.adminSectionHint}>If music controls stop working, reconnect here.</Text>
+                                        <Text style={styles.adminStatusText}>{spotifyStatus}</Text>
+                                        <TouchableOpacity
+                                            style={styles.adminSpotifyBtn}
+                                            onPress={() => { void handleSpotifyConnect(); }}
+                                        >
+                                            <Text style={styles.adminBtnText}>
+                                                {spotifySession ? "Reconnect Spotify" : "Connect Spotify"}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    <View style={[styles.adminSection, { flex: 1 }]}>
+                                        <Text style={styles.adminSectionTitle}>Selected member access</Text>
+                                        <Text style={styles.adminSectionHint}>
+                                            {selectedMemberRecord ? `ID ${activeMemberId}` : "Scan a card to inspect a member."}
+                                        </Text>
+                                        <Text style={styles.adminStatusText}>{selectedMemberStatus}</Text>
+                                        <Text style={styles.adminTimerText}>{memberCooldownCountdown}</Text>
+                                        <TouchableOpacity
+                                            style={styles.adminResetBtn}
+                                            onPress={() => {
+                                                if (!activeMemberId || activeMemberId === TEST_ID) {
+                                                    return;
+                                                }
+                                                const records = { ...memberRecordsRef.current };
+                                                delete records[activeMemberId];
+                                                saveMemberRecords(records);
+                                            }}
+                                        >
+                                            <Text style={styles.adminBtnText}>Reset selected member (allow fresh vote)</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                <View style={styles.adminSection}>
+                                    <Text style={styles.adminSectionTitle}>Member vote state ({memberCount})</Text>
+                                    <Text style={styles.adminSectionHint}>Each row tells you exactly what the member can still do.</Text>
+                                    {memberCount === 0 ? (
+                                        <Text style={styles.adminHistoryEmpty}>No members scanned this session.</Text>
+                                    ) : (
+                                        <View style={styles.adminTable}>
+                                            <View style={styles.adminTableHeader}>
+                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 1.1 }]}>Member ID</Text>
+                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 1.7 }]}>Current State</Text>
+                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell]}>Genre</Text>
+                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell]}>Volume</Text>
+                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 1.1 }]}>Cooldown</Text>
+                                            </View>
+                                            {memberEntries.map(([id, record], i) => {
+                                                const remaining = Math.max(0, MEMBER_COOLDOWN_MS - (Date.now() - record.scannedAt));
+                                                const mins = Math.floor(remaining / 60000);
+                                                const secs = Math.floor((remaining % 60000) / 1000);
+                                                return (
+                                                    <View
+                                                        key={id}
+                                                        style={[
+                                                            styles.adminTableRow,
+                                                            i % 2 === 0 ? styles.adminTableRowEven : null,
+                                                            activeMemberId === id ? styles.adminTableRowActive : null,
+                                                        ]}
+                                                    >
+                                                        <Text style={[styles.adminTableCell, { flex: 1.1 }]}>{id}</Text>
+                                                        <Text style={[styles.adminTableCell, { flex: 1.7 }]}>{describeMemberVoteState(record)}</Text>
+                                                        <Text style={[styles.adminTableCell, { color: record.votedGenre ? "#4ADE80" : "rgba(255,255,255,0.65)" }]}>
+                                                            {record.votedGenre ? "Done" : "Open"}
+                                                        </Text>
+                                                        <Text style={[styles.adminTableCell, { color: record.votedVolume ? "#4ADE80" : "rgba(255,255,255,0.65)" }]}>
+                                                            {record.votedVolume ? "Done" : "Open"}
+                                                        </Text>
+                                                        <Text style={[styles.adminTableCell, { flex: 1.1, fontFamily: "monospace" }]}>
+                                                            {remaining > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "Expired"}
+                                                        </Text>
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    )}
+                                </View>
+
+                                <View style={styles.adminSection}>
+                                    <Text style={styles.adminSectionTitle}>Vote snapshots (advanced)</Text>
+                                    <Text style={styles.adminSectionHint}>Historical totals from reset snapshots for debugging only.</Text>
+                                    {voteHistory.length === 0 ? (
+                                        <Text style={styles.adminHistoryEmpty}>No resets yet.</Text>
+                                    ) : (
+                                        <View style={styles.adminTable}>
+                                            <View style={styles.adminTableHeader}>
+                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 0.8 }]}>Reset Time</Text>
+                                                {INITIAL_PLAYLISTS.map((p) => (
+                                                    <Text key={p.id} style={[styles.adminTableCell, styles.adminTableHeaderCell]}>{p.name}</Text>
+                                                ))}
+                                            </View>
+                                            {voteHistory.map((entry, i) => (
+                                                <View key={`history-${i}`} style={[styles.adminTableRow, i % 2 === 0 ? styles.adminTableRowEven : null]}>
+                                                    <Text style={[styles.adminTableCell, { flex: 0.8 }]}>{entry.time}</Text>
+                                                    {INITIAL_PLAYLISTS.map((p) => {
+                                                        const found = entry.votes.find((v) => v.name === p.name);
+                                                        return <Text key={p.id} style={styles.adminTableCell}>{found?.votes ?? 0}</Text>;
+                                                    })}
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                </View>
+                            </ScrollView>
+                        </View>
+                    )}
