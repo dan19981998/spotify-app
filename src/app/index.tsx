@@ -44,6 +44,8 @@ const WAVE_BAR_COUNT = 100;
 const SPOTIFY_STORAGE_KEY = "spotify_session";
 const SCANNED_IDS_KEY = "scanned_members";
 const VOTE_HISTORY_KEY = "vote_history";
+const DAILY_COUNT_KEY = "daily_member_count";
+const ALLTIME_GENRE_KEY = "alltime_genre_counts";
 const SPOTIFY_CROSSFADE_MS = 7000;
 const CROSSFADE_SAFE_COMPLETION_WINDOW_MS = SPOTIFY_CROSSFADE_MS + 5000;
 const PRE_SWITCH_BUFFER_MS = 2000;
@@ -588,6 +590,9 @@ export default function App() {
     const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const idleAttractTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [voteHistory, setVoteHistory] = useState<VoteHistoryEntry[]>([]);
+    const [dailyMemberCount, setDailyMemberCount] = useState(0);
+    const [dailyCountDate, setDailyCountDate] = useState("");
+    const [allTimeGenreCounts, setAllTimeGenreCounts] = useState<Record<number, number>>({});
     const [memberRecords, setMemberRecords] = useState<Record<string, MemberRecord>>({});
     const memberRecordsRef = useRef<Record<string, MemberRecord>>({});
     const [activeMemberId, setActiveMemberId] = useState<string | null>(null);
@@ -634,6 +639,45 @@ export default function App() {
             AsyncStorage.setItem(VOTE_HISTORY_KEY, JSON.stringify(voteHistory));
         }
     }, [voteHistory]);
+
+    // Load daily member count and all-time genre counts
+    useEffect(() => {
+        (async () => {
+            try {
+                const todayUK = new Date().toLocaleDateString("en-GB", { timeZone: "Europe/London" });
+                const storedDaily = await AsyncStorage.getItem(DAILY_COUNT_KEY);
+                if (storedDaily) {
+                    const parsed = JSON.parse(storedDaily) as { date: string; count: number };
+                    if (parsed.date === todayUK) {
+                        setDailyMemberCount(parsed.count);
+                        setDailyCountDate(parsed.date);
+                    } else {
+                        setDailyCountDate(todayUK);
+                    }
+                } else {
+                    setDailyCountDate(todayUK);
+                }
+                const storedGenre = await AsyncStorage.getItem(ALLTIME_GENRE_KEY);
+                if (storedGenre) {
+                    setAllTimeGenreCounts(JSON.parse(storedGenre));
+                }
+            } catch { }
+        })();
+    }, []);
+
+    // Persist daily count
+    useEffect(() => {
+        if (dailyCountDate) {
+            AsyncStorage.setItem(DAILY_COUNT_KEY, JSON.stringify({ date: dailyCountDate, count: dailyMemberCount }));
+        }
+    }, [dailyMemberCount, dailyCountDate]);
+
+    // Persist all-time genre counts
+    useEffect(() => {
+        if (Object.keys(allTimeGenreCounts).length > 0) {
+            AsyncStorage.setItem(ALLTIME_GENRE_KEY, JSON.stringify(allTimeGenreCounts));
+        }
+    }, [allTimeGenreCounts]);
 
     // Expire individual votes after 1 hour and recalculate tallies
     useEffect(() => {
@@ -1041,6 +1085,15 @@ export default function App() {
         if (trimmed !== TEST_ID) {
             const updated = { ...memberRecordsRef.current, [trimmed]: record };
             saveMemberRecords(updated);
+
+            // Increment daily member count (resets at UK midnight)
+            const todayUK = new Date().toLocaleDateString("en-GB", { timeZone: "Europe/London" });
+            if (todayUK !== dailyCountDate) {
+                setDailyCountDate(todayUK);
+                setDailyMemberCount(1);
+            } else {
+                setDailyMemberCount((prev) => prev + 1);
+            }
         }
         setActiveMemberId(trimmed);
         setHasAccess(true);
@@ -1073,6 +1126,9 @@ export default function App() {
             ...individualVotesRef.current,
             { memberId: activeMemberId || "unknown", playlistId, votedAt: Date.now() },
         ];
+
+        // Increment all-time genre count
+        setAllTimeGenreCounts((prev) => ({ ...prev, [playlistId]: (prev[playlistId] || 0) + 1 }));
 
         const nextPlaylists = playlists.map((playlist) =>
             playlist.id === playlistId
@@ -1857,18 +1913,7 @@ export default function App() {
         inputRange: [0, 1],
         outputRange: [0, 0.06],
     });
-    const memberEntries = Object.entries(memberRecords).sort((a, b) => b[1].scannedAt - a[1].scannedAt);
-    const membersWithVotesRemaining = memberEntries.filter(([, record]) => !record.votedGenre || !record.votedVolume).length;
-    const membersFullyUsed = memberEntries.length - membersWithVotesRemaining;
-    const describeMemberVoteState = (record: MemberRecord) => {
-        if (record.votedGenre && record.votedVolume) return "Complete (genre + volume used)";
-        if (!record.votedGenre && !record.votedVolume) return "No votes used yet";
-        if (record.votedGenre && !record.votedVolume) return "Waiting for volume vote";
-        return "Waiting for genre vote";
-    };
-    const selectedMemberStatus = selectedMemberRecord
-        ? `${selectedMemberRecord.votedGenre ? "Genre used" : "Genre available"} | ${selectedMemberRecord.votedVolume ? "Volume used" : "Volume available"}`
-        : "No member selected.";
+
 
     return (
         <View
@@ -2432,126 +2477,34 @@ export default function App() {
 
                                 <View style={styles.adminSummaryRow}>
                                     <View style={styles.adminSummaryCard}>
-                                        <Text style={styles.adminSummaryLabel}>Members in cooldown window</Text>
-                                        <Text style={styles.adminSummaryValue}>{memberCount}</Text>
-                                    </View>
-                                    <View style={styles.adminSummaryCard}>
-                                        <Text style={styles.adminSummaryLabel}>Still have votes left</Text>
-                                        <Text style={styles.adminSummaryValue}>{membersWithVotesRemaining}</Text>
-                                    </View>
-                                    <View style={styles.adminSummaryCard}>
-                                        <Text style={styles.adminSummaryLabel}>Completed both votes</Text>
-                                        <Text style={styles.adminSummaryValue}>{membersFullyUsed}</Text>
+                                        <Text style={styles.adminSummaryLabel}>Members voted today</Text>
+                                        <Text style={styles.adminSummaryValue}>{dailyMemberCount}</Text>
                                     </View>
                                 </View>
 
-                                <View style={styles.adminRow}>
-                                    <View style={[styles.adminSection, { flex: 1 }]}>
-                                        <Text style={styles.adminSectionTitle}>Spotify health</Text>
-                                        <Text style={styles.adminSectionHint}>If music controls stop working, reconnect here.</Text>
-                                        <Text style={styles.adminStatusText}>{spotifyStatus}</Text>
-                                        <TouchableOpacity
-                                            style={styles.adminSpotifyBtn}
-                                            onPress={() => { void handleSpotifyConnect(); }}
-                                        >
-                                            <Text style={styles.adminBtnText}>
-                                                {spotifySession ? "Reconnect Spotify" : "Connect Spotify"}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    <View style={[styles.adminSection, { flex: 1 }]}>
-                                        <Text style={styles.adminSectionTitle}>Selected member access</Text>
-                                        <Text style={styles.adminSectionHint}>
-                                            {selectedMemberRecord ? `ID ${activeMemberId}` : "Scan a card to inspect a member."}
+                                <View style={styles.adminSection}>
+                                    <Text style={styles.adminSectionTitle}>Spotify</Text>
+                                    <Text style={styles.adminStatusText}>{spotifyStatus}</Text>
+                                    <TouchableOpacity
+                                        style={styles.adminSpotifyBtn}
+                                        onPress={() => { void handleSpotifyConnect(); }}
+                                    >
+                                        <Text style={styles.adminBtnText}>
+                                            {spotifySession ? "Reconnect Spotify" : "Connect Spotify"}
                                         </Text>
-                                        <Text style={styles.adminStatusText}>{selectedMemberStatus}</Text>
-                                        <Text style={styles.adminTimerText}>{memberCooldownCountdown}</Text>
-                                        <TouchableOpacity
-                                            style={styles.adminResetBtn}
-                                            onPress={() => {
-                                                if (!activeMemberId || activeMemberId === TEST_ID) {
-                                                    return;
-                                                }
-                                                const records = { ...memberRecordsRef.current };
-                                                delete records[activeMemberId];
-                                                saveMemberRecords(records);
-                                            }}
-                                        >
-                                            <Text style={styles.adminBtnText}>Reset selected member (allow fresh vote)</Text>
-                                        </TouchableOpacity>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={styles.adminSection}>
+                                    <Text style={styles.adminSectionTitle}>All-time genre votes</Text>
+                                    <View style={styles.adminGenreGrid}>
+                                        {INITIAL_PLAYLISTS.map((p) => (
+                                            <View key={p.id} style={styles.adminGenreCard}>
+                                                <Text style={styles.adminGenreLabel}>{p.name}</Text>
+                                                <Text style={styles.adminGenreValue}>{allTimeGenreCounts[p.id] || 0}</Text>
+                                            </View>
+                                        ))}
                                     </View>
-                                </View>
-
-                                <View style={styles.adminSection}>
-                                    <Text style={styles.adminSectionTitle}>Member vote state ({memberCount})</Text>
-                                    <Text style={styles.adminSectionHint}>Each row tells you exactly what the member can still do.</Text>
-                                    {memberCount === 0 ? (
-                                        <Text style={styles.adminHistoryEmpty}>No members scanned this session.</Text>
-                                    ) : (
-                                        <View style={styles.adminTable}>
-                                            <View style={styles.adminTableHeader}>
-                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 1.1 }]}>Member ID</Text>
-                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 1.7 }]}>Current State</Text>
-                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell]}>Genre</Text>
-                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell]}>Volume</Text>
-                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 1.1 }]}>Cooldown</Text>
-                                            </View>
-                                            {memberEntries.map(([id, record], i) => {
-                                                const remaining = Math.max(0, MEMBER_COOLDOWN_MS - (Date.now() - record.scannedAt));
-                                                const mins = Math.floor(remaining / 60000);
-                                                const secs = Math.floor((remaining % 60000) / 1000);
-                                                return (
-                                                    <View
-                                                        key={id}
-                                                        style={[
-                                                            styles.adminTableRow,
-                                                            i % 2 === 0 ? styles.adminTableRowEven : null,
-                                                            activeMemberId === id ? styles.adminTableRowActive : null,
-                                                        ]}
-                                                    >
-                                                        <Text style={[styles.adminTableCell, { flex: 1.1 }]}>{id}</Text>
-                                                        <Text style={[styles.adminTableCell, { flex: 1.7 }]}>{describeMemberVoteState(record)}</Text>
-                                                        <Text style={[styles.adminTableCell, { color: record.votedGenre ? "#4ADE80" : "rgba(255,255,255,0.65)" }]}>
-                                                            {record.votedGenre ? "Done" : "Open"}
-                                                        </Text>
-                                                        <Text style={[styles.adminTableCell, { color: record.votedVolume ? "#4ADE80" : "rgba(255,255,255,0.65)" }]}>
-                                                            {record.votedVolume ? "Done" : "Open"}
-                                                        </Text>
-                                                        <Text style={[styles.adminTableCell, { flex: 1.1, fontFamily: "monospace" }]}>
-                                                            {remaining > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : "Expired"}
-                                                        </Text>
-                                                    </View>
-                                                );
-                                            })}
-                                        </View>
-                                    )}
-                                </View>
-
-                                <View style={styles.adminSection}>
-                                    <Text style={styles.adminSectionTitle}>Vote snapshots (advanced)</Text>
-                                    <Text style={styles.adminSectionHint}>Historical totals from reset snapshots for debugging only.</Text>
-                                    {voteHistory.length === 0 ? (
-                                        <Text style={styles.adminHistoryEmpty}>No resets yet.</Text>
-                                    ) : (
-                                        <View style={styles.adminTable}>
-                                            <View style={styles.adminTableHeader}>
-                                                <Text style={[styles.adminTableCell, styles.adminTableHeaderCell, { flex: 0.8 }]}>Reset Time</Text>
-                                                {INITIAL_PLAYLISTS.map((p) => (
-                                                    <Text key={p.id} style={[styles.adminTableCell, styles.adminTableHeaderCell]}>{p.name}</Text>
-                                                ))}
-                                            </View>
-                                            {voteHistory.map((entry, i) => (
-                                                <View key={`history-${i}`} style={[styles.adminTableRow, i % 2 === 0 ? styles.adminTableRowEven : null]}>
-                                                    <Text style={[styles.adminTableCell, { flex: 0.8 }]}>{entry.time}</Text>
-                                                    {INITIAL_PLAYLISTS.map((p) => {
-                                                        const found = entry.votes.find((v) => v.name === p.name);
-                                                        return <Text key={p.id} style={styles.adminTableCell}>{found?.votes ?? 0}</Text>;
-                                                    })}
-                                                </View>
-                                            ))}
-                                        </View>
-                                    )}
                                 </View>
                             </ScrollView>
                         </View>
@@ -3442,6 +3395,31 @@ const styles = StyleSheet.create({
         color: "#fff",
         fontSize: 15,
         fontWeight: "700",
+    },
+    adminGenreGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 12,
+        marginTop: 8,
+    },
+    adminGenreCard: {
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderRadius: 8,
+        paddingVertical: 14,
+        paddingHorizontal: 18,
+        minWidth: 120,
+        alignItems: "center",
+    },
+    adminGenreLabel: {
+        color: "rgba(255,255,255,0.7)",
+        fontSize: 13,
+        marginBottom: 4,
+    },
+    adminGenreValue: {
+        color: "#fff",
+        fontSize: 24,
+        fontWeight: "700",
+        fontFamily: "monospace",
     },
     adminTimerText: {
         color: "#fff",
