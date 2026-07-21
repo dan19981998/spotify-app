@@ -125,6 +125,12 @@ type MemberRecord = {
     votedVolume: "up" | "down" | null;
 };
 
+type IndividualVote = {
+    memberId: string;
+    playlistId: number;
+    votedAt: number;
+};
+
 function clonePlaylists() {
     return INITIAL_PLAYLISTS.map((playlist) => ({ ...playlist }));
 }
@@ -559,6 +565,7 @@ export default function App() {
     const [memberNumber, setMemberNumber] = useState("");
     const [permission, requestPermission] = useCameraPermissions();
     const [playlists, setPlaylists] = useState<Playlist[]>(clonePlaylists());
+    const individualVotesRef = useRef<IndividualVote[]>([]);
     const [currentPlaylistUri, setCurrentPlaylistUri] = useState<string | null>(null);
     const [pendingPlaylistUri, setPendingPlaylistUri] = useState<string | null>(null);
     const [spotifySession, setSpotifySession] = useState<SpotifySession | null>(null);
@@ -627,6 +634,36 @@ export default function App() {
             AsyncStorage.setItem(VOTE_HISTORY_KEY, JSON.stringify(voteHistory));
         }
     }, [voteHistory]);
+
+    // Expire individual votes after 1 hour and recalculate tallies
+    useEffect(() => {
+        const cleanup = setInterval(() => {
+            const now = Date.now();
+            const before = individualVotesRef.current.length;
+            const active = individualVotesRef.current.filter((v) => now - v.votedAt < MEMBER_COOLDOWN_MS);
+            if (active.length !== before) {
+                individualVotesRef.current = active;
+                // Recalculate playlist vote counts from remaining active votes
+                const counts: Record<number, number> = {};
+                for (const v of active) {
+                    counts[v.playlistId] = (counts[v.playlistId] || 0) + 1;
+                }
+                const updatedPlaylists = INITIAL_PLAYLISTS.map((p) => ({ ...p, votes: counts[p.id] || 0 }));
+                setPlaylists(updatedPlaylists);
+
+                // Check if expiry caused a new leader and trigger a switch
+                const winner = getWinningPlaylist(updatedPlaylists);
+                if (currentPlaylistUri && currentPlaylistUri !== winner.uri && winner.votes > 0) {
+                    if (!pendingPlaylistUri || pendingPlaylistUri !== winner.uri) {
+                        songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
+                    }
+                    setPendingPlaylistUri(winner.uri);
+                    setSpotifyStatus(`${winner.name} is now winning — switching after this song and the next song.`);
+                }
+            }
+        }, 30000);
+        return () => clearInterval(cleanup);
+    }, [currentPlaylistUri, pendingPlaylistUri]);
 
     const overlayOpacity = useRef(new Animated.Value(0)).current;
     const topWinnerGlowAnim = useRef(new Animated.Value(0.55)).current;
@@ -1031,6 +1068,12 @@ export default function App() {
     };
 
     const applyVote = async (playlistId: number) => {
+        // Record this individual vote with a timestamp for per-user expiry
+        individualVotesRef.current = [
+            ...individualVotesRef.current,
+            { memberId: activeMemberId || "unknown", playlistId, votedAt: Date.now() },
+        ];
+
         const nextPlaylists = playlists.map((playlist) =>
             playlist.id === playlistId
                 ? { ...playlist, votes: playlist.votes + 1 }
