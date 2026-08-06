@@ -719,6 +719,11 @@ export default function App() {
     const volumeGlowOpacity = useRef(new Animated.Value(0)).current;
     const volumeGlowScale = useRef(new Animated.Value(0.88)).current;
     const [isIdleAttractActive, setIsIdleAttractActive] = useState(false);
+    const idleRippleAnimsRef = useRef<Animated.Value[]>([]);
+    if (idleRippleAnimsRef.current.length !== 6) {
+        idleRippleAnimsRef.current = Array.from({ length: 6 }, () => new Animated.Value(0));
+    }
+    const idleRippleAnims = idleRippleAnimsRef.current;
     const isRecoveringSpotifyRef = useRef(false);
     const songsRemainingRef = useRef(0);
     const lastTrackedSongUriRef = useRef<string | null>(null);
@@ -1754,7 +1759,13 @@ export default function App() {
         }).start();
 
         idleGlowPulse.setValue(0);
+        idleRippleAnims.forEach((r) => r.setValue(0));
+
+        const BURST_STAGGER = 600;
+        const RIPPLE_DURATION = 3200;
+        const BURST_TOTAL = (idleRippleAnims.length - 1) * BURST_STAGGER + RIPPLE_DURATION;
         const PAUSE_BETWEEN = 30000;
+        const FULL_CYCLE = BURST_TOTAL + PAUSE_BETWEEN;
 
         const glowLoop = Animated.loop(
             Animated.sequence([
@@ -1774,12 +1785,42 @@ export default function App() {
             ])
         );
 
+        // Master progress animation: 0 to 1 over the full cycle duration
+        const masterProgress = new Animated.Value(0);
+        const masterLoop = Animated.loop(
+            Animated.timing(masterProgress, {
+                toValue: 1,
+                duration: FULL_CYCLE,
+                easing: Easing.linear,
+                useNativeDriver: false,
+            })
+        );
+
+        // For each ripple, map master progress to its animation curve
+        idleRippleAnims.forEach((ripple, index) => {
+            const delayStart = (index * BURST_STAGGER) / FULL_CYCLE;
+            const animEnd = ((index * BURST_STAGGER) + RIPPLE_DURATION) / FULL_CYCLE;
+
+            masterProgress.addListener(({ value }) => {
+                if (value >= delayStart && value <= animEnd) {
+                    // Normalize to 0-1 within this ripple's animation window
+                    const localProgress = (value - delayStart) / (animEnd - delayStart);
+                    ripple.setValue(localProgress);
+                } else if (value > animEnd) {
+                    ripple.setValue(0);
+                }
+            });
+        });
+
         glowLoop.start();
+        masterLoop.start();
 
         return () => {
             glowLoop.stop();
+            masterLoop.stop();
+            masterProgress.removeAllListeners();
         };
-    }, [isIdleAttractActive, idleOverlayOpacity, idleGlowPulse]);
+    }, [isIdleAttractActive, idleOverlayOpacity, idleGlowPulse, idleRippleAnims]);
 
     useEffect(() => {
         const animations = waveBars.map((bar, index) => {
@@ -1861,6 +1902,9 @@ export default function App() {
     const needsPermission = showOverlay && !permission?.granted;
     const statusText = "";
     const sortedPlaylists = [...playlists].sort((a, b) => b.votes - a.votes);
+    const idleRippleSize = Dimensions.get("window").width * 1.3;
+    const idleScreenW = Dimensions.get("window").width;
+    const idleScreenH = Dimensions.get("window").height;
     const idleBaseGlowOpacity = idleGlowPulse.interpolate({
         inputRange: [0, 1],
         outputRange: [0, 0.06],
@@ -2481,6 +2525,42 @@ export default function App() {
                                 },
                             ]}
                         />
+                        {/* Staggered radial ripples rolling across the full screen */}
+                        {idleRippleAnims.map((anim, i) => {
+                            const ripplePositions = [
+                                { cx: idleScreenW * 0.5, cy: idleScreenH * 0.5 },
+                                { cx: idleScreenW * 0.18, cy: idleScreenH * 0.32 },
+                                { cx: idleScreenW * 0.82, cy: idleScreenH * 0.68 },
+                                { cx: idleScreenW * 0.78, cy: idleScreenH * 0.22 },
+                                { cx: idleScreenW * 0.25, cy: idleScreenH * 0.78 },
+                                { cx: idleScreenW * 0.6, cy: idleScreenH * 0.42 },
+                            ];
+                            const pos = ripplePositions[i];
+                            return (
+                                <Animated.View
+                                    key={`ripple-${i}`}
+                                    style={[
+                                        styles.idleAttractRipple,
+                                        {
+                                            width: idleRippleSize,
+                                            height: idleRippleSize,
+                                            left: pos.cx - idleRippleSize / 2,
+                                            top: pos.cy - idleRippleSize / 2,
+                                            opacity: anim.interpolate({
+                                                inputRange: [0, 0.22, 0.65, 1],
+                                                outputRange: [0, 0.42, 0.2, 0],
+                                            }),
+                                            transform: [{
+                                                scale: anim.interpolate({
+                                                    inputRange: [0, 1],
+                                                    outputRange: [0.08, 1.65],
+                                                }),
+                                            }],
+                                        },
+                                    ]}
+                                />
+                            );
+                        })}
                     </Animated.View>
 
                     {/* Green semi-transparent overlay for scanning/manual/result screens */}
@@ -2621,6 +2701,15 @@ const styles = StyleSheet.create({
         ...StyleSheet.absoluteFill,
         zIndex: 7,
         overflow: "hidden",
+    },
+    idleAttractRipple: {
+        position: "absolute",
+        borderRadius: 999,
+        backgroundColor: "rgba(255, 255, 255, 0.22)",
+        shadowColor: "#ffffff",
+        shadowOpacity: 0.55,
+        shadowRadius: 40,
+        shadowOffset: { width: 0, height: 0 },
     },
     greenOverlay: {
         ...StyleSheet.absoluteFill,
