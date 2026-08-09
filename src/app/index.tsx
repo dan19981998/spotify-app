@@ -1428,7 +1428,13 @@ export default function App() {
             return;
         }
 
+        let switchBackoff = 0;
+
         const checkPendingSwitch = async () => {
+            if (switchBackoff > 0) {
+                switchBackoff--;
+                return;
+            }
             const accessToken = await getValidSpotifyAccessToken();
             if (!accessToken) {
                 return;
@@ -1441,6 +1447,7 @@ export default function App() {
             });
 
             if (!response.ok || response.status === 204) {
+                if (response.status === 429) switchBackoff = 120;
                 return;
             }
 
@@ -1540,7 +1547,7 @@ export default function App() {
         const refreshCurrentTrackArtwork = async () => {
             if (backoffCount > 0) {
                 backoffCount--;
-                setPollingDebug(`[${new Date().toLocaleTimeString()}] Backing off (${backoffCount} remaining)`);
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] Rate limited — waiting ${Math.round(backoffCount * 15 / 60)} min before retry`);
                 return;
             }
             const accessToken = await getValidSpotifyAccessToken();
@@ -1563,7 +1570,7 @@ export default function App() {
 
             if (!response.ok) {
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] API error ${response.status}: ${response.statusText}`);
-                if (response.status === 429) backoffCount = 3;
+                if (response.status === 429) backoffCount = 120;
                 return;
             }
 
