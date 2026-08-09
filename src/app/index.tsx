@@ -1523,12 +1523,6 @@ export default function App() {
         const refreshCurrentTrackArtwork = async () => {
             const accessToken = await getValidSpotifyAccessToken();
             if (!accessToken) {
-                // Token expired — attempt silent recovery
-                if (!isRecoveringSpotifyRef.current) {
-                    isRecoveringSpotifyRef.current = true;
-                    await handleSpotifyConnect(true);
-                    isRecoveringSpotifyRef.current = false;
-                }
                 return;
             }
 
@@ -1544,11 +1538,6 @@ export default function App() {
             }
 
             if (!response.ok) {
-                if ((response.status === 401 || response.status === 403) && !isRecoveringSpotifyRef.current) {
-                    isRecoveringSpotifyRef.current = true;
-                    await handleSpotifyConnect(true);
-                    isRecoveringSpotifyRef.current = false;
-                }
                 return;
             }
 
