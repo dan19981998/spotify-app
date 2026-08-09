@@ -569,7 +569,9 @@ export default function App() {
     const [playlists, setPlaylists] = useState<Playlist[]>(clonePlaylists());
     const individualVotesRef = useRef<IndividualVote[]>([]);
     const [currentPlaylistUri, setCurrentPlaylistUri] = useState<string | null>(null);
+    const currentPlaylistUriRef = useRef<string | null>(null);
     const [pendingPlaylistUri, setPendingPlaylistUri] = useState<string | null>(null);
+    const pendingPlaylistUriRef = useRef<string | null>(null);
     const [spotifySession, setSpotifySession] = useState<SpotifySession | null>(null);
     const spotifySessionRef = useRef<SpotifySession | null>(null);
     const [spotifyStatus, setSpotifyStatus] = useState("Connect Spotify to enable playback.");
@@ -699,17 +701,18 @@ export default function App() {
 
                 // Check if expiry caused a new leader and trigger a switch
                 const winner = getWinningPlaylist(updatedPlaylists);
-                if (currentPlaylistUri && currentPlaylistUri !== winner.uri && winner.votes > 0) {
-                    if (!pendingPlaylistUri || pendingPlaylistUri !== winner.uri) {
+                if (currentPlaylistUriRef.current && currentPlaylistUriRef.current !== winner.uri && winner.votes > 0) {
+                    if (!pendingPlaylistUriRef.current || pendingPlaylistUriRef.current !== winner.uri) {
                         songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
                     }
                     setPendingPlaylistUri(winner.uri);
+                    pendingPlaylistUriRef.current = winner.uri;
                     setSpotifyStatus(`${winner.name} is now winning — switching after this song and the next song.`);
                 }
             }
         }, 30000);
         return () => clearInterval(cleanup);
-    }, [currentPlaylistUri, pendingPlaylistUri]);
+    }, []);
 
     const overlayOpacity = useRef(new Animated.Value(0)).current;
     const topWinnerGlowAnim = useRef(new Animated.Value(0.55)).current;
@@ -1184,10 +1187,12 @@ export default function App() {
 
                             if (detectedCurrentUri) {
                                 setCurrentPlaylistUri(detectedCurrentUri);
+                                currentPlaylistUriRef.current = detectedCurrentUri;
 
                                 if (detectedCurrentUri !== winner.uri) {
                                     songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
                                     setPendingPlaylistUri(winner.uri);
+                                    pendingPlaylistUriRef.current = winner.uri;
                                     setSpotifyStatus(`${winner.name} is now winning — switching after this song and the next song.`);
                                 }
                                 return;
@@ -1202,6 +1207,7 @@ export default function App() {
             const didPlay = await playPlaylist(winner.uri);
             if (didPlay) {
                 setCurrentPlaylistUri(winner.uri);
+                currentPlaylistUriRef.current = winner.uri;
             }
             return;
         }
@@ -1211,6 +1217,7 @@ export default function App() {
                 songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
             }
             setPendingPlaylistUri(winner.uri);
+            pendingPlaylistUriRef.current = winner.uri;
             setSpotifyStatus(`${winner.name} is now winning — switching after this song and the next song.`);
         }
     };
@@ -1500,7 +1507,9 @@ export default function App() {
                 const didPlay = await playPlaylist(pendingPlaylistUri);
                 if (didPlay) {
                     setCurrentPlaylistUri(pendingPlaylistUri);
+                    currentPlaylistUriRef.current = pendingPlaylistUri;
                     setPendingPlaylistUri(null);
+                    pendingPlaylistUriRef.current = null;
                     songsRemainingRef.current = 0;
                     lastTrackedSongUriRef.current = null;
                     lastTrackProgressMsRef.current = null;
