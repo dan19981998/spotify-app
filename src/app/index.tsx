@@ -1523,10 +1523,11 @@ export default function App() {
         const refreshCurrentTrackArtwork = async () => {
             const accessToken = await getValidSpotifyAccessToken();
             if (!accessToken) {
-                if (isActive) {
-                    setCurrentTrackArtUrl(null);
-                    setCurrentTrackName("");
-                    setCurrentTrackArtist("");
+                // Token expired — attempt silent recovery
+                if (!isRecoveringSpotifyRef.current) {
+                    isRecoveringSpotifyRef.current = true;
+                    await handleSpotifyConnect(true);
+                    isRecoveringSpotifyRef.current = false;
                 }
                 return;
             }
@@ -1537,22 +1538,24 @@ export default function App() {
                 },
             });
 
-            if (!response.ok || response.status === 204) {
-                if (isActive) {
-                    setCurrentTrackArtUrl(null);
-                    setCurrentTrackName("");
-                    setCurrentTrackArtist("");
+            if (response.status === 204) {
+                // No active playback reported — keep existing data, don't blank it
+                return;
+            }
+
+            if (!response.ok) {
+                // Auth failure — try to recover token silently
+                if ((response.status === 401 || response.status === 403) && !isRecoveringSpotifyRef.current) {
+                    isRecoveringSpotifyRef.current = true;
+                    await handleSpotifyConnect(true);
+                    isRecoveringSpotifyRef.current = false;
                 }
                 return;
             }
 
             const text = await response.text();
             if (!text) {
-                if (isActive) {
-                    setCurrentTrackArtUrl(null);
-                    setCurrentTrackName("");
-                    setCurrentTrackArtist("");
-                }
+                // Empty response — keep existing data, don't blank it
                 return;
             }
 
@@ -1568,15 +1571,20 @@ export default function App() {
                 progress_ms?: number;
             };
 
-            const artUrl = data.item?.album?.images?.[0]?.url ?? null;
-            const trackName = data.item?.name ?? "";
-            const trackArtist = data.item?.artists?.map((artist) => artist.name).join(", ") ?? "";
+            // If Spotify returns no item, keep existing display data
+            if (!data.item) {
+                return;
+            }
+
+            const artUrl = data.item.album?.images?.[0]?.url ?? null;
+            const trackName = data.item.name ?? "";
+            const trackArtist = data.item.artists?.map((artist) => artist.name).join(", ") ?? "";
             if (isActive) {
-                setCurrentTrackArtUrl(artUrl);
-                setCurrentTrackName(trackName);
-                setCurrentTrackArtist(trackArtist);
-                setTrackProgressMs(data.progress_ms ?? 0);
-                setTrackDurationMs(data.item?.duration_ms ?? 0);
+                if (artUrl) setCurrentTrackArtUrl(artUrl);
+                if (trackName) setCurrentTrackName(trackName);
+                if (trackArtist) setCurrentTrackArtist(trackArtist);
+                if (typeof data.progress_ms === "number") setTrackProgressMs(data.progress_ms);
+                if (typeof data.item.duration_ms === "number") setTrackDurationMs(data.item.duration_ms);
             }
 
             // Fetch next track from queue
