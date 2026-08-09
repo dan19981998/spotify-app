@@ -1532,19 +1532,18 @@ export default function App() {
                 return;
             }
 
-            const response = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
+            // Use /me/player instead of /currently-playing — more reliable for remote playback
+            const response = await fetch("https://api.spotify.com/v1/me/player", {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },
             });
 
             if (response.status === 204) {
-                // No active playback reported — keep existing data, don't blank it
                 return;
             }
 
             if (!response.ok) {
-                // Auth failure — try to recover token silently
                 if ((response.status === 401 || response.status === 403) && !isRecoveringSpotifyRef.current) {
                     isRecoveringSpotifyRef.current = true;
                     await handleSpotifyConnect(true);
@@ -1555,7 +1554,6 @@ export default function App() {
 
             const text = await response.text();
             if (!text) {
-                // Empty response — keep existing data, don't blank it
                 return;
             }
 
@@ -1569,6 +1567,7 @@ export default function App() {
                     duration_ms?: number;
                 };
                 progress_ms?: number;
+                device?: { volume_percent?: number };
             };
 
             // If Spotify returns no item, keep existing display data
@@ -1585,6 +1584,8 @@ export default function App() {
                 if (trackArtist) setCurrentTrackArtist(trackArtist);
                 if (typeof data.progress_ms === "number") setTrackProgressMs(data.progress_ms);
                 if (typeof data.item.duration_ms === "number") setTrackDurationMs(data.item.duration_ms);
+                const vol = data.device?.volume_percent;
+                if (vol != null) setVolumePercent(Math.round(vol / 5));
             }
 
             // Fetch next track from queue
@@ -1610,20 +1611,6 @@ export default function App() {
                     setNextTrackArtist("");
                 }
             }
-
-            // Sync volume from Spotify player state
-            try {
-                const playerResponse = await fetch("https://api.spotify.com/v1/me/player", {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (playerResponse.ok) {
-                    const playerData = await playerResponse.json() as { device?: { volume_percent?: number } };
-                    const vol = playerData.device?.volume_percent;
-                    if (vol != null && isActive) {
-                        setVolumePercent(Math.round(vol / 5));
-                    }
-                }
-            } catch { }
         };
 
         void refreshCurrentTrackArtwork();
