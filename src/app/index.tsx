@@ -1549,8 +1549,8 @@ export default function App() {
                 return;
             }
 
-            // Use /me/player instead of /currently-playing — more reliable for remote playback
-            const response = await fetch("https://api.spotify.com/v1/me/player", {
+            // Use /currently-playing — same endpoint that worked for months
+            const response = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },
