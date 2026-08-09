@@ -571,7 +571,9 @@ export default function App() {
     const [currentPlaylistUri, setCurrentPlaylistUri] = useState<string | null>(null);
     const [pendingPlaylistUri, setPendingPlaylistUri] = useState<string | null>(null);
     const [spotifySession, setSpotifySession] = useState<SpotifySession | null>(null);
+    const spotifySessionRef = useRef<SpotifySession | null>(null);
     const [spotifyStatus, setSpotifyStatus] = useState("Connect Spotify to enable playback.");
+    const [pollingDebug, setPollingDebug] = useState("");
     const [currentTrackArtUrl, setCurrentTrackArtUrl] = useState<string | null>(null);
     const [currentTrackName, setCurrentTrackName] = useState("");
     const [currentTrackArtist, setCurrentTrackArtist] = useState("");
@@ -815,20 +817,21 @@ export default function App() {
     };
 
     const getValidSpotifyAccessToken = async () => {
-        if (!spotifySession) {
+        const session = spotifySessionRef.current;
+        if (!session) {
             return null;
         }
 
-        if (Date.now() < spotifySession.expiresAt - 60_000) {
-            return spotifySession.accessToken;
+        if (Date.now() < session.expiresAt - 60_000) {
+            return session.accessToken;
         }
 
-        if (spotifySession.refreshToken) {
+        if (session.refreshToken) {
             try {
                 setSpotifyStatus("Refreshing Spotify session...");
                 const body = new URLSearchParams();
                 body.set("grant_type", "refresh_token");
-                body.set("refresh_token", spotifySession.refreshToken);
+                body.set("refresh_token", session.refreshToken);
                 body.set("client_id", SPOTIFY_CLIENT_ID);
 
                 const response = await fetch(SPOTIFY_TOKEN_ENDPOINT, {
@@ -848,11 +851,12 @@ export default function App() {
 
                     const refreshedSession: SpotifySession = {
                         accessToken: data.access_token,
-                        refreshToken: data.refresh_token ?? spotifySession.refreshToken,
+                        refreshToken: data.refresh_token ?? session.refreshToken,
                         expiresAt: Date.now() + data.expires_in * 1000,
                     };
 
                     setSpotifySession(refreshedSession);
+                    spotifySessionRef.current = refreshedSession;
                     await saveSpotifySession(refreshedSession);
                     setSpotifyStatus("Spotify connected. You can start voting now.");
                     return refreshedSession.accessToken;
@@ -863,6 +867,7 @@ export default function App() {
         }
 
         setSpotifySession(null);
+        spotifySessionRef.current = null;
         await saveSpotifySession(null);
         setSpotifyStatus("Spotify session expired. Connect again.");
         return null;
@@ -1352,6 +1357,7 @@ export default function App() {
             };
 
             setSpotifySession(nextSession);
+            spotifySessionRef.current = nextSession;
             await saveSpotifySession(nextSession);
             setSpotifyStatus("Spotify connected. You can start voting now.");
             return true;
@@ -1371,6 +1377,7 @@ export default function App() {
 
                 const parsed = JSON.parse(value) as SpotifySession;
                 setSpotifySession(parsed);
+                spotifySessionRef.current = parsed;
                 setSpotifyStatus("Spotify session restored.");
             })
             .catch((error) => {
@@ -1523,6 +1530,7 @@ export default function App() {
         const refreshCurrentTrackArtwork = async () => {
             const accessToken = await getValidSpotifyAccessToken();
             if (!accessToken) {
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] No token. sessionRef: ${spotifySessionRef.current ? "exists" : "null"}`);
                 return;
             }
 
@@ -1534,10 +1542,12 @@ export default function App() {
             });
 
             if (response.status === 204) {
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] API returned 204 (no active device)`);
                 return;
             }
 
             if (!response.ok) {
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] API error ${response.status}: ${response.statusText}`);
                 return;
             }
 
@@ -1561,6 +1571,7 @@ export default function App() {
 
             // If Spotify returns no item, keep existing display data
             if (!data.item) {
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] API OK but no item in response`);
                 return;
             }
 
@@ -1575,6 +1586,7 @@ export default function App() {
                 if (typeof data.item.duration_ms === "number") setTrackDurationMs(data.item.duration_ms);
                 const vol = data.device?.volume_percent;
                 if (vol != null) setVolumePercent(Math.round(vol / 5));
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] OK: "${trackName}" by ${trackArtist} | art: ${artUrl ? "yes" : "no"}`);
             }
 
             // Fetch next track from queue
@@ -2465,6 +2477,7 @@ export default function App() {
                                 <View style={styles.adminSection}>
                                     <Text style={styles.adminSectionTitle}>Spotify</Text>
                                     <Text style={styles.adminStatusText}>{spotifyStatus}</Text>
+                                    {pollingDebug ? <Text style={[styles.adminStatusText, { color: "#aaa", fontSize: 11, marginTop: 4 }]}>Polling: {pollingDebug}</Text> : null}
                                     <TouchableOpacity
                                         style={styles.adminSpotifyBtn}
                                         onPress={() => { void handleSpotifyConnect(); }}
