@@ -1515,7 +1515,7 @@ export default function App() {
 
         const interval = setInterval(() => {
             void checkPendingSwitch();
-        }, 8000);
+        }, 15000);
 
         return () => clearInterval(interval);
     }, [pendingPlaylistUri]);
@@ -1526,8 +1526,14 @@ export default function App() {
         }
 
         let isActive = true;
+        let backoffCount = 0;
 
         const refreshCurrentTrackArtwork = async () => {
+            if (backoffCount > 0) {
+                backoffCount--;
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] Backing off (${backoffCount} remaining)`);
+                return;
+            }
             const accessToken = await getValidSpotifyAccessToken();
             if (!accessToken) {
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] No token. sessionRef: ${spotifySessionRef.current ? "exists" : "null"}`);
@@ -1548,6 +1554,7 @@ export default function App() {
 
             if (!response.ok) {
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] API error ${response.status}: ${response.statusText}`);
+                if (response.status === 429) backoffCount = 3;
                 return;
             }
 
@@ -1588,36 +1595,12 @@ export default function App() {
                 if (vol != null) setVolumePercent(Math.round(vol / 5));
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] OK: "${trackName}" by ${trackArtist} | art: ${artUrl ? "yes" : "no"}`);
             }
-
-            // Fetch next track from queue
-            try {
-                const queueResponse = await fetch("https://api.spotify.com/v1/me/player/queue", {
-                    headers: { Authorization: `Bearer ${accessToken}` },
-                });
-                if (queueResponse.ok) {
-                    const queueData = await queueResponse.json() as { queue?: { name?: string; artists?: { name: string }[] }[] };
-                    const next = queueData.queue?.[0]?.name ?? "";
-                    const nextArtist = queueData.queue?.[0]?.artists?.map((a) => a.name).join(", ") ?? "";
-                    if (isActive) {
-                        setNextTrackName(next);
-                        setNextTrackArtist(nextArtist);
-                    }
-                } else if (isActive) {
-                    setNextTrackName("");
-                    setNextTrackArtist("");
-                }
-            } catch {
-                if (isActive) {
-                    setNextTrackName("");
-                    setNextTrackArtist("");
-                }
-            }
         };
 
         void refreshCurrentTrackArtwork();
         const interval = setInterval(() => {
             void refreshCurrentTrackArtwork();
-        }, 10000);
+        }, 15000);
 
         return () => {
             isActive = false;
