@@ -1508,10 +1508,10 @@ export default function App() {
 
         const interval = setInterval(() => {
             void checkPendingSwitch();
-        }, 3000);
+        }, 8000);
 
         return () => clearInterval(interval);
-    }, [pendingPlaylistUri, spotifySession]);
+    }, [pendingPlaylistUri]);
 
     useEffect(() => {
         if (accessState !== "voting") {
@@ -1605,13 +1605,13 @@ export default function App() {
         void refreshCurrentTrackArtwork();
         const interval = setInterval(() => {
             void refreshCurrentTrackArtwork();
-        }, 5000);
+        }, 10000);
 
         return () => {
             isActive = false;
             clearInterval(interval);
         };
-    }, [accessState, spotifySession]);
+    }, [accessState]);
 
     useEffect(() => {
         if (!isWebPreviewMode || accessState !== "voting") {
