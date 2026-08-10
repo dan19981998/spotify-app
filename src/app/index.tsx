@@ -2587,7 +2587,9 @@ export default function App() {
                                 </View>
                             ) : accessState === "scanning" ? (
                                 <View style={styles.fullScreenTransparent} pointerEvents="box-none">
-                                    <CameraView ref={cameraRef} style={styles.fullScreenCamera} facing="front" mirror={false} />
+                                    <View pointerEvents="none" style={styles.fullScreenCamera}>
+                                        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" mirror={false} />
+                                    </View>
                                     <View style={styles.modalFrame}>
                                         <View style={styles.modalCard}>
                                             <Image source={require("../../assets/images/scan-your-membership.png")} style={styles.scanTitleImage} resizeMode="contain" />
