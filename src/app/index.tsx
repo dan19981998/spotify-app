@@ -2599,9 +2599,6 @@ export default function App() {
                                                 <Image source={require("../../assets/images/noise.png")} style={styles.modalNoiseImage} resizeMode="repeat" />
                                             </View>
                                         </View>
-                                        <TouchableOpacity style={styles.manualEntryBtn} onPress={() => { setManualNumber(""); setAccessState("manual"); }}>
-                                            <Text style={styles.manualEntryBtnText}>Enter membership no manually</Text>
-                                        </TouchableOpacity>
                                         <View style={styles.modalBorderLayer} pointerEvents="none">
                                             <Image source={require("../../assets/images/border.png")} style={styles.modalBorderImage} resizeMode="stretch" />
                                         </View>
