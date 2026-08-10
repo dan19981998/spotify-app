@@ -17,6 +17,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     UIManager,
     View
@@ -51,7 +52,7 @@ const CROSSFADE_SAFE_COMPLETION_WINDOW_MS = SPOTIFY_CROSSFADE_MS + 5000;
 const PRE_SWITCH_BUFFER_MS = 2000;
 const MIN_COMPLETION_RATIO = 0.9;
 const MIN_PLAYED_WITHOUT_DURATION_MS = 45000;
-const MEMBER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const MEMBER_COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
 const RETURN_WINDOW_MS = 30 * 1000; // 30 seconds
 const IDLE_ATTRACT_DELAY_MS = 60 * 1000; // 1 minute
 const WEB_PREVIEW_TRACK = {
@@ -565,6 +566,7 @@ export default function App() {
     const [accessState, setAccessState] = useState<AccessState>("voting");
     const [hasAccess, setHasAccess] = useState(false);
     const [memberNumber, setMemberNumber] = useState("");
+    const [manualNumber, setManualNumber] = useState("");
     const [permission, requestPermission] = useCameraPermissions();
     const [playlists, setPlaylists] = useState<Playlist[]>(clonePlaylists());
     const individualVotesRef = useRef<IndividualVote[]>([]);
@@ -2591,6 +2593,44 @@ export default function App() {
                                             <Image source={require("../../assets/images/scan-your-membership.png")} style={styles.scanTitleImage} resizeMode="contain" />
                                             <Image source={require("../../assets/images/loginimage.png")} style={styles.loginImage} resizeMode="contain" />
                                             <Image source={require("../../assets/images/hold your membership-card-infront-of-the-camera.png")} style={styles.scanSubtitleImage} resizeMode="contain" />
+                                            <TouchableOpacity style={styles.manualEntryBtn} onPress={() => { setManualNumber(""); setAccessState("manual"); }}>
+                                                <Text style={styles.manualEntryBtnText}>Enter number manually</Text>
+                                            </TouchableOpacity>
+                                            <View style={styles.modalNoiseLayer} pointerEvents="none">
+                                                <Image source={require("../../assets/images/noise.png")} style={styles.modalNoiseImage} resizeMode="repeat" />
+                                            </View>
+                                        </View>
+                                        <View style={styles.modalBorderLayer} pointerEvents="none">
+                                            <Image source={require("../../assets/images/border.png")} style={styles.modalBorderImage} resizeMode="stretch" />
+                                        </View>
+                                    </View>
+                                </View>
+                            ) : accessState === "manual" ? (
+                                <View style={styles.fullScreenTransparent} pointerEvents="box-none">
+                                    <View style={[styles.modalFrame, styles.modalFrameManual]}>
+                                        <TouchableOpacity style={styles.manualBackButton} onPress={() => setAccessState("scanning")}>
+                                            <View style={styles.backArrow}>
+                                                <Text style={styles.backArrowText}>←</Text>
+                                            </View>
+                                        </TouchableOpacity>
+                                        <View style={[styles.modalCard, styles.modalCardManual]}>
+                                            <Text style={styles.manualInputLabel}>Enter your 7-digit membership number</Text>
+                                            <TextInput
+                                                style={styles.input}
+                                                value={manualNumber}
+                                                onChangeText={(t) => setManualNumber(t.replace(/[^0-9]/g, "").slice(0, 7))}
+                                                keyboardType="number-pad"
+                                                maxLength={7}
+                                                placeholder="0000000"
+                                                placeholderTextColor="rgba(255,255,255,0.3)"
+                                            />
+                                            <TouchableOpacity
+                                                style={[styles.manualSubmitBtn, manualNumber.length !== 7 && { opacity: 0.4 }]}
+                                                disabled={manualNumber.length !== 7}
+                                                onPress={() => { handleCheckIn(manualNumber); setManualNumber(""); }}
+                                            >
+                                                <Text style={styles.manualSubmitBtnText}>Submit</Text>
+                                            </TouchableOpacity>
                                             <View style={styles.modalNoiseLayer} pointerEvents="none">
                                                 <Image source={require("../../assets/images/noise.png")} style={styles.modalNoiseImage} resizeMode="repeat" />
                                             </View>
@@ -2946,6 +2986,35 @@ const styles = StyleSheet.create({
     manualButtonImage: {
         width: "100%",
         height: 44,
+    },
+    manualEntryBtn: {
+        marginTop: 20,
+        paddingVertical: 12,
+        paddingHorizontal: 28,
+        backgroundColor: "rgba(255,255,255,0.12)",
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.25)",
+        zIndex: 10,
+    },
+    manualEntryBtnText: {
+        color: "#fff",
+        fontSize: 15,
+        fontWeight: "600",
+        textAlign: "center",
+    },
+    manualSubmitBtn: {
+        marginTop: 20,
+        width: "100%",
+        paddingVertical: 14,
+        backgroundColor: "#208AEF",
+        borderRadius: 8,
+        alignItems: "center",
+    },
+    manualSubmitBtnText: {
+        color: "#fff",
+        fontSize: 18,
+        fontWeight: "bold",
     },
     deniedCircle: {
         backgroundColor: "#3d0a0a",
