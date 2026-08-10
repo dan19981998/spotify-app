@@ -2593,9 +2593,6 @@ export default function App() {
                                             <Image source={require("../../assets/images/scan-your-membership.png")} style={styles.scanTitleImage} resizeMode="contain" />
                                             <Image source={require("../../assets/images/loginimage.png")} style={styles.loginImage} resizeMode="contain" />
                                             <Image source={require("../../assets/images/hold your membership-card-infront-of-the-camera.png")} style={styles.scanSubtitleImage} resizeMode="contain" />
-                                            <TouchableOpacity style={styles.manualEntryBtn} onPress={() => { setManualNumber(""); setAccessState("manual"); }}>
-                                                <Text style={styles.manualEntryBtnText}>Enter number manually</Text>
-                                            </TouchableOpacity>
                                             <View style={styles.modalNoiseLayer} pointerEvents="none">
                                                 <Image source={require("../../assets/images/noise.png")} style={styles.modalNoiseImage} resizeMode="repeat" />
                                             </View>
@@ -2604,6 +2601,9 @@ export default function App() {
                                             <Image source={require("../../assets/images/border.png")} style={styles.modalBorderImage} resizeMode="stretch" />
                                         </View>
                                     </View>
+                                    <TouchableOpacity style={styles.manualEntryBtn} onPress={() => { setManualNumber(""); setAccessState("manual"); }}>
+                                        <Text style={styles.manualEntryBtnText}>Enter membership no manually</Text>
+                                    </TouchableOpacity>
                                 </View>
                             ) : accessState === "manual" ? (
                                 <View style={styles.fullScreenTransparent} pointerEvents="box-none">
@@ -2995,7 +2995,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.25)",
-        zIndex: 10,
+        zIndex: 30,
+        elevation: 30,
     },
     manualEntryBtnText: {
         color: "#fff",
