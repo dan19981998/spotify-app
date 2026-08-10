@@ -2599,13 +2599,13 @@ export default function App() {
                                                 <Image source={require("../../assets/images/noise.png")} style={styles.modalNoiseImage} resizeMode="repeat" />
                                             </View>
                                         </View>
+                                        <TouchableOpacity style={styles.manualEntryBtn} onPress={() => { setManualNumber(""); setAccessState("manual"); }}>
+                                            <Text style={styles.manualEntryBtnText}>Enter membership no manually</Text>
+                                        </TouchableOpacity>
                                         <View style={styles.modalBorderLayer} pointerEvents="none">
                                             <Image source={require("../../assets/images/border.png")} style={styles.modalBorderImage} resizeMode="stretch" />
                                         </View>
                                     </View>
-                                    <TouchableOpacity style={styles.manualEntryBtn} onPress={() => { setManualNumber(""); setAccessState("manual"); }}>
-                                        <Text style={styles.manualEntryBtnText}>Enter membership no manually</Text>
-                                    </TouchableOpacity>
                                 </View>
                             ) : accessState === "manual" ? (
                                 <View style={styles.fullScreenTransparent} pointerEvents="box-none">
@@ -2990,15 +2990,17 @@ const styles = StyleSheet.create({
         height: 44,
     },
     manualEntryBtn: {
-        marginTop: 20,
+        position: "absolute",
+        bottom: 15,
+        alignSelf: "center",
         paddingVertical: 12,
         paddingHorizontal: 28,
         backgroundColor: "rgba(255,255,255,0.12)",
         borderRadius: 8,
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.25)",
-        zIndex: 30,
-        elevation: 30,
+        zIndex: 50,
+        elevation: 50,
     },
     manualEntryBtnText: {
         color: "#fff",
