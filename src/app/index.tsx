@@ -817,12 +817,30 @@ export default function App() {
             return null;
         }
 
+        // Try 7-digit number first
         const matches = text.match(/\d{7}/g);
-        if (!matches) {
-            return null;
+        if (matches) {
+            return matches[0];
         }
 
-        return matches[0];
+        // Fallback: extract a name from the pass
+        const ignoreWords = new Set(["gym", "member", "membership", "fitness", "card", "pass", "digital", "wallet", "google", "active", "status", "valid", "expire", "expires", "from", "since", "the", "and", "for"]);
+        const lines = text.split(/\n/);
+        for (const line of lines) {
+            const trimmed = line.trim();
+            // Look for lines with 2-4 words that start with capital letters (likely a name)
+            const words = trimmed.split(/\s+/).filter((w) => w.length > 1);
+            if (words.length >= 2 && words.length <= 4) {
+                const allCapitalized = words.every((w) => /^[A-Z]/.test(w));
+                const noneIgnored = words.every((w) => !ignoreWords.has(w.toLowerCase()));
+                if (allCapitalized && noneIgnored) {
+                    // Use lowercase name as ID key for consistency
+                    return `name:${words.join(" ").toLowerCase()}`;
+                }
+            }
+        }
+
+        return null;
     };
 
     const saveSpotifySession = async (session: SpotifySession | null) => {
