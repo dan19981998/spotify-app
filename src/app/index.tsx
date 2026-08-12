@@ -54,6 +54,20 @@ const MIN_COMPLETION_RATIO = 0.9;
 const MIN_PLAYED_WITHOUT_DURATION_MS = 45000;
 const MEMBER_COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
 const RETURN_WINDOW_MS = 30 * 1000; // 30 seconds
+
+/** Returns true if the vote was cast before 6am today (UK time) — i.e. from yesterday's session */
+function isVoteExpired(votedAt: number): boolean {
+    const now = new Date();
+    const ukNow = new Date(now.toLocaleString("en-GB", { timeZone: "Europe/London" }));
+    // Today's reset time: 6am UK
+    const resetToday = new Date(ukNow);
+    resetToday.setHours(6, 0, 0, 0);
+    // If it's before 6am, reset was yesterday at 6am
+    const resetTime = ukNow.getHours() < 6
+        ? new Date(resetToday.getTime() - 24 * 60 * 60 * 1000)
+        : resetToday;
+    return votedAt < resetTime.getTime();
+}
 const IDLE_ATTRACT_DELAY_MS = 60 * 1000; // 1 minute
 const WEB_PREVIEW_TRACK = {
     name: "FE!N",
@@ -685,12 +699,11 @@ export default function App() {
         }
     }, [allTimeGenreCounts]);
 
-    // Expire individual votes after 1 hour and recalculate tallies
+    // Expire votes at 6am UK (display resets daily) and recalculate tallies
     useEffect(() => {
         const cleanup = setInterval(() => {
-            const now = Date.now();
             const before = individualVotesRef.current.length;
-            const active = individualVotesRef.current.filter((v) => now - v.votedAt < MEMBER_COOLDOWN_MS);
+            const active = individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt));
             if (active.length !== before) {
                 individualVotesRef.current = active;
                 // Recalculate playlist vote counts from remaining active votes
@@ -1533,7 +1546,7 @@ export default function App() {
 
         const interval = setInterval(() => {
             void checkPendingSwitch();
-        }, 15000);
+        }, 8000);
 
         return () => clearInterval(interval);
     }, [pendingPlaylistUri]);
@@ -2587,13 +2600,12 @@ export default function App() {
                                 </View>
                             ) : accessState === "scanning" ? (
                                 <View style={styles.fullScreenTransparent} pointerEvents="box-none">
-                                    <View pointerEvents="none" style={styles.fullScreenCamera}>
-                                        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" mirror={false} />
-                                    </View>
                                     <View style={styles.modalFrame}>
                                         <View style={styles.modalCard}>
                                             <Image source={require("../../assets/images/scan-your-membership.png")} style={styles.scanTitleImage} resizeMode="contain" />
-                                            <Image source={require("../../assets/images/loginimage.png")} style={styles.loginImage} resizeMode="contain" />
+                                            <View style={styles.cameraPreview}>
+                                                <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" mirror={false} />
+                                            </View>
                                             <Image source={require("../../assets/images/hold your membership-card-infront-of-the-camera.png")} style={styles.scanSubtitleImage} resizeMode="contain" />
                                             <View style={styles.modalNoiseLayer} pointerEvents="none">
                                                 <Image source={require("../../assets/images/noise.png")} style={styles.modalNoiseImage} resizeMode="repeat" />
@@ -2966,6 +2978,13 @@ const styles = StyleSheet.create({
         width: "80%",
         height: 380,
         alignSelf: "center",
+    },
+    cameraPreview: {
+        width: "80%",
+        height: 380,
+        alignSelf: "center",
+        borderRadius: 12,
+        overflow: "hidden",
     },
     scanSubtitle: {
         fontSize: 18,
