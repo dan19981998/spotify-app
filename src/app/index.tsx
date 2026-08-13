@@ -616,6 +616,7 @@ export default function App() {
     const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const membersLoadedRef = useRef(false);
     const pendingVoteRef = useRef<number | null>(null);
+    const lastPolledTrackRef = useRef("");
 
     const memberCount = Object.keys(memberRecords).length;
     const selectedMemberRecord = activeMemberId ? memberRecords[activeMemberId] : null;
@@ -1653,6 +1654,29 @@ export default function App() {
                 const vol = data.device?.volume_percent;
                 if (vol != null) setVolumePercent(Math.round(vol / 5));
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] OK: "${trackName}" by ${trackArtist} | art: ${artUrl ? "yes" : "no"}`);
+
+                // Fetch next track from queue only when song changes
+                if (trackName && trackName !== lastPolledTrackRef.current) {
+                    lastPolledTrackRef.current = trackName;
+                    try {
+                        const queueRes = await fetch("https://api.spotify.com/v1/me/player/queue", {
+                            headers: { Authorization: `Bearer ${accessToken}` },
+                        });
+                        if (queueRes.ok) {
+                            const queueData = await queueRes.json() as {
+                                queue?: { name?: string; artists?: { name: string }[] }[];
+                            };
+                            const nextItem = queueData.queue?.[0];
+                            if (nextItem) {
+                                setNextTrackName(nextItem.name ?? "");
+                                setNextTrackArtist(nextItem.artists?.map((a) => a.name).join(", ") ?? "");
+                            } else {
+                                setNextTrackName("");
+                                setNextTrackArtist("");
+                            }
+                        }
+                    } catch { }
+                }
             }
         };
 
