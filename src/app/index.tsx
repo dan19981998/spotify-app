@@ -939,11 +939,17 @@ export default function App() {
 
             if (devicesResponse.ok) {
                 const devicesData = await devicesResponse.json() as {
-                    devices: { id: string; is_active: boolean; name: string }[];
+                    devices: { id: string; is_active: boolean; name: string; volume_percent?: number }[];
                 };
 
                 const activeDevice = devicesData.devices.find((d) => d.is_active);
                 const anyDevice = devicesData.devices[0] ?? null;
+
+                // Sync volume from the active (or first) device
+                const volDevice = activeDevice ?? anyDevice;
+                if (volDevice?.volume_percent != null) {
+                    setVolumePercent(Math.round(volDevice.volume_percent / 5));
+                }
 
                 if (activeDevice) {
                     deviceId = activeDevice.id;
