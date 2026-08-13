@@ -55,18 +55,11 @@ const MIN_PLAYED_WITHOUT_DURATION_MS = 45000;
 const MEMBER_COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
 const RETURN_WINDOW_MS = 30 * 1000; // 30 seconds
 
-/** Returns true if the vote was cast before 6am today (UK time) — i.e. from yesterday's session */
+const VOTE_DISPLAY_MS = 60 * 60 * 1000; // 1 hour — individual vote expires from display after this
+
+/** Returns true if the vote is older than 1 hour */
 function isVoteExpired(votedAt: number): boolean {
-    const now = new Date();
-    const ukNow = new Date(now.toLocaleString("en-GB", { timeZone: "Europe/London" }));
-    // Today's reset time: 6am UK
-    const resetToday = new Date(ukNow);
-    resetToday.setHours(6, 0, 0, 0);
-    // If it's before 6am, reset was yesterday at 6am
-    const resetTime = ukNow.getHours() < 6
-        ? new Date(resetToday.getTime() - 24 * 60 * 60 * 1000)
-        : resetToday;
-    return votedAt < resetTime.getTime();
+    return Date.now() - votedAt >= VOTE_DISPLAY_MS;
 }
 const IDLE_ATTRACT_DELAY_MS = 60 * 1000; // 1 minute
 const WEB_PREVIEW_TRACK = {
@@ -622,6 +615,7 @@ export default function App() {
     const lastValidIdRef = useRef("");
     const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const membersLoadedRef = useRef(false);
+    const pendingVoteRef = useRef<number | null>(null);
 
     const memberCount = Object.keys(memberRecords).length;
     const selectedMemberRecord = activeMemberId ? memberRecords[activeMemberId] : null;
@@ -1144,9 +1138,18 @@ export default function App() {
         }
         setActiveMemberId(trimmed);
         setHasAccess(true);
-        setVolumeWindow(true);
         setAccessState("voting");
         if (scanDismissTimerRef.current) clearTimeout(scanDismissTimerRef.current);
+
+        // Auto-apply pending genre vote if user selected one before scanning
+        if (pendingVoteRef.current != null) {
+            const pid = pendingVoteRef.current;
+            pendingVoteRef.current = null;
+            // Small delay so state settles before handleVote runs
+            setTimeout(() => { void handleVote(pid); }, 100);
+        } else {
+            setVolumeWindow(true);
+        }
 
         // Auto-lock after 10s of inactivity
         if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
@@ -1263,6 +1266,7 @@ export default function App() {
 
     const handleVote = async (playlistId: number) => {
         if (!hasAccess) {
+            pendingVoteRef.current = playlistId;
             setAccessState("scanning");
             // Auto-dismiss scan popup after 30s with fade out
             if (scanDismissTimerRef.current) clearTimeout(scanDismissTimerRef.current);
@@ -2369,11 +2373,25 @@ export default function App() {
                             <View style={styles.volumeBarContainer}>
                                 <TouchableOpacity
                                     style={[styles.volumeButton, !volumeWindow && { opacity: 0.4 }]}
-                                    onPress={() => {
+                                    onPress={async () => {
                                         if (!volumeWindow) return;
-                                        const next = Math.min(volumePercent + 1, 20);
-                                        setVolumePercent(next);
                                         triggerVolumeGlow();
+                                        // Fetch real volume before applying change
+                                        let current = volumePercent;
+                                        if (spotifySession?.accessToken) {
+                                            try {
+                                                const res = await fetch("https://api.spotify.com/v1/me/player/devices", {
+                                                    headers: { Authorization: `Bearer ${spotifySession.accessToken}` },
+                                                });
+                                                if (res.ok) {
+                                                    const data = await res.json() as { devices: { is_active: boolean; volume_percent?: number }[] };
+                                                    const active = data.devices.find((d) => d.is_active) ?? data.devices[0];
+                                                    if (active?.volume_percent != null) current = Math.round(active.volume_percent / 5);
+                                                }
+                                            } catch { }
+                                        }
+                                        const next = Math.min(current + 1, 20);
+                                        setVolumePercent(next);
                                         if (spotifySession?.accessToken) {
                                             fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=${next * 5}`, {
                                                 method: "PUT",
@@ -2437,11 +2455,25 @@ export default function App() {
                                 </View>
                                 <TouchableOpacity
                                     style={[styles.volumeButton, !volumeWindow && { opacity: 0.4 }]}
-                                    onPress={() => {
+                                    onPress={async () => {
                                         if (!volumeWindow) return;
-                                        const next = Math.max(volumePercent - 1, 0);
-                                        setVolumePercent(next);
                                         triggerVolumeGlow();
+                                        // Fetch real volume before applying change
+                                        let current = volumePercent;
+                                        if (spotifySession?.accessToken) {
+                                            try {
+                                                const res = await fetch("https://api.spotify.com/v1/me/player/devices", {
+                                                    headers: { Authorization: `Bearer ${spotifySession.accessToken}` },
+                                                });
+                                                if (res.ok) {
+                                                    const data = await res.json() as { devices: { is_active: boolean; volume_percent?: number }[] };
+                                                    const active = data.devices.find((d) => d.is_active) ?? data.devices[0];
+                                                    if (active?.volume_percent != null) current = Math.round(active.volume_percent / 5);
+                                                }
+                                            } catch { }
+                                        }
+                                        const next = Math.max(current - 1, 0);
+                                        setVolumePercent(next);
                                         if (spotifySession?.accessToken) {
                                             fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=${next * 5}`, {
                                                 method: "PUT",
