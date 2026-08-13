@@ -1146,8 +1146,36 @@ export default function App() {
         if (pendingVoteRef.current != null) {
             const pid = pendingVoteRef.current;
             pendingVoteRef.current = null;
-            // Small delay so state settles before handleVote runs
-            setTimeout(() => { void handleVote(pid); }, 100);
+            // Apply vote directly (can't use handleVote — stale closure sees hasAccess=false)
+            void applyVote(pid).then(() => {
+                setHasAccess(false);
+                if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+                // Record genre vote
+                if (trimmed !== TEST_ID) {
+                    const records = { ...memberRecordsRef.current };
+                    if (records[trimmed]) {
+                        records[trimmed] = { ...records[trimmed], votedGenre: true };
+                        saveMemberRecords(records);
+                    }
+                }
+                // Open volume window with 7s countdown
+                setVolumeWindow(true);
+                setVolumeCountdown(7);
+                if (volumeCountdownRef.current) clearInterval(volumeCountdownRef.current);
+                volumeCountdownRef.current = setInterval(() => {
+                    setVolumeCountdown((prev) => {
+                        if (prev <= 1) { if (volumeCountdownRef.current) clearInterval(volumeCountdownRef.current); return 0; }
+                        return prev - 1;
+                    });
+                }, 1000);
+                if (volumeWindowTimerRef.current) clearTimeout(volumeWindowTimerRef.current);
+                volumeWindowTimerRef.current = setTimeout(() => {
+                    setVolumeWindow(false);
+                    setActiveMemberId(null);
+                    if (volumeCountdownRef.current) clearInterval(volumeCountdownRef.current);
+                    setVolumeCountdown(0);
+                }, 5000);
+            });
         } else {
             setVolumeWindow(true);
         }
