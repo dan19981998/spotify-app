@@ -1667,6 +1667,7 @@ export default function App() {
                     duration_ms?: number;
                 };
                 progress_ms?: number;
+                context?: { uri?: string };
                 device?: { volume_percent?: number };
             };
 
@@ -1674,6 +1675,27 @@ export default function App() {
             if (!data.item) {
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] API OK but no item in response`);
                 return;
+            }
+
+            // Detect external playlist change (e.g. staff queued a different playlist)
+            const polledContextUri = data.context?.uri;
+            if (
+                polledContextUri &&
+                polledContextUri.startsWith("spotify:playlist:") &&
+                currentPlaylistUriRef.current &&
+                polledContextUri !== currentPlaylistUriRef.current
+            ) {
+                setCurrentPlaylistUri(polledContextUri);
+                currentPlaylistUriRef.current = polledContextUri;
+
+                // If staff switched to the playlist we were about to switch to,
+                // cancel the pending switch so we don't restart it unnecessarily.
+                if (pendingPlaylistUriRef.current && polledContextUri === pendingPlaylistUriRef.current) {
+                    setPendingPlaylistUri(null);
+                    pendingPlaylistUriRef.current = null;
+                    songsRemainingRef.current = 0;
+                    setSpotifyStatus("");
+                }
             }
 
             const artUrl = data.item.album?.images?.[0]?.url ?? null;
