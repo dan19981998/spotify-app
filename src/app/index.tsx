@@ -1688,6 +1688,29 @@ export default function App() {
                 setCurrentPlaylistUri(polledContextUri);
                 currentPlaylistUriRef.current = polledContextUri;
 
+                // Give the staff-selected playlist enough votes to lead (current top + 1)
+                const staffPlaylist = INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri);
+                if (staffPlaylist) {
+                    const currentTop = Math.max(...playlists.map((p) => p.votes), 0);
+                    const staffCurrentVotes = playlists.find((p) => p.id === staffPlaylist.id)?.votes ?? 0;
+                    const needed = currentTop + 1 - staffCurrentVotes;
+                    if (needed > 0) {
+                        const now = Date.now();
+                        for (let i = 0; i < needed; i++) {
+                            individualVotesRef.current.push({
+                                memberId: `staff-override-${now}`,
+                                playlistId: staffPlaylist.id,
+                                votedAt: now,
+                            });
+                        }
+                        setPlaylists((prev) =>
+                            prev.map((p) =>
+                                p.id === staffPlaylist.id ? { ...p, votes: p.votes + needed } : p
+                            )
+                        );
+                    }
+                }
+
                 // If staff switched to the playlist we were about to switch to,
                 // cancel the pending switch so we don't restart it unnecessarily.
                 if (pendingPlaylistUriRef.current && polledContextUri === pendingPlaylistUriRef.current) {
