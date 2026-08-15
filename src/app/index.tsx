@@ -31,6 +31,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 
 
 const SONGS_BEFORE_GENRE_SWITCH = 5;
+const MIN_VOTES_TO_SWITCH = 2;
 const SPOTIFY_CLIENT_ID = "5c6044e666b741b980c9821508f65443";
 const SPOTIFY_AUTHORIZE_ENDPOINT = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
@@ -711,7 +712,7 @@ export default function App() {
 
                 // Check if expiry caused a new leader and trigger a switch
                 const winner = getWinningPlaylist(updatedPlaylists);
-                if (currentPlaylistUriRef.current && currentPlaylistUriRef.current !== winner.uri && winner.votes > 0) {
+                if (currentPlaylistUriRef.current && currentPlaylistUriRef.current !== winner.uri && winner.votes >= MIN_VOTES_TO_SWITCH) {
                     if (!pendingPlaylistUriRef.current) {
                         songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
                     }
@@ -1260,7 +1261,7 @@ export default function App() {
                                 setCurrentPlaylistUri(detectedCurrentUri);
                                 currentPlaylistUriRef.current = detectedCurrentUri;
 
-                                if (detectedCurrentUri !== winner.uri) {
+                                if (detectedCurrentUri !== winner.uri && winner.votes >= MIN_VOTES_TO_SWITCH) {
                                     songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
                                     setPendingPlaylistUri(winner.uri);
                                     pendingPlaylistUriRef.current = winner.uri;
@@ -1283,7 +1284,7 @@ export default function App() {
             return;
         }
 
-        if (currentPlaylistUri !== winner.uri) {
+        if (currentPlaylistUri !== winner.uri && winner.votes >= MIN_VOTES_TO_SWITCH) {
             if (!pendingPlaylistUriRef.current) {
                 songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
             }
