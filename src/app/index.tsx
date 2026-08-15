@@ -30,7 +30,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 
-const SONGS_BEFORE_GENRE_SWITCH = 2;
+const SONGS_BEFORE_GENRE_SWITCH = 5;
 const SPOTIFY_CLIENT_ID = "5c6044e666b741b980c9821508f65443";
 const SPOTIFY_AUTHORIZE_ENDPOINT = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
@@ -52,12 +52,12 @@ const CROSSFADE_SAFE_COMPLETION_WINDOW_MS = SPOTIFY_CROSSFADE_MS + 5000;
 const PRE_SWITCH_BUFFER_MS = 2000;
 const MIN_COMPLETION_RATIO = 0.9;
 const MIN_PLAYED_WITHOUT_DURATION_MS = 45000;
-const MEMBER_COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
+const MEMBER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 const RETURN_WINDOW_MS = 30 * 1000; // 30 seconds
 
-const VOTE_DISPLAY_MS = 60 * 60 * 1000; // 1 hour — individual vote expires from display after this
+const VOTE_DISPLAY_MS = 6 * 60 * 60 * 1000; // 6 hours — individual vote expires from display after this
 
-/** Returns true if the vote is older than 1 hour */
+/** Returns true if the vote is older than 6 hours */
 function isVoteExpired(votedAt: number): boolean {
     return Date.now() - votedAt >= VOTE_DISPLAY_MS;
 }
@@ -712,12 +712,12 @@ export default function App() {
                 // Check if expiry caused a new leader and trigger a switch
                 const winner = getWinningPlaylist(updatedPlaylists);
                 if (currentPlaylistUriRef.current && currentPlaylistUriRef.current !== winner.uri && winner.votes > 0) {
-                    if (!pendingPlaylistUriRef.current || pendingPlaylistUriRef.current !== winner.uri) {
+                    if (!pendingPlaylistUriRef.current) {
                         songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
                     }
                     setPendingPlaylistUri(winner.uri);
                     pendingPlaylistUriRef.current = winner.uri;
-                    setSpotifyStatus(`${winner.name} is now winning — switching after this song and the next song.`);
+                    setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
                 }
             }
         }, 30000);
@@ -1264,7 +1264,7 @@ export default function App() {
                                     songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
                                     setPendingPlaylistUri(winner.uri);
                                     pendingPlaylistUriRef.current = winner.uri;
-                                    setSpotifyStatus(`${winner.name} is now winning — switching after this song and the next song.`);
+                                    setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
                                 }
                                 return;
                             }
@@ -1284,12 +1284,12 @@ export default function App() {
         }
 
         if (currentPlaylistUri !== winner.uri) {
-            if (!pendingPlaylistUri || pendingPlaylistUri !== winner.uri) {
+            if (!pendingPlaylistUriRef.current) {
                 songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
             }
             setPendingPlaylistUri(winner.uri);
             pendingPlaylistUriRef.current = winner.uri;
-            setSpotifyStatus(`${winner.name} is now winning — switching after this song and the next song.`);
+            setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
         }
     };
 
@@ -1556,6 +1556,11 @@ export default function App() {
             // Count only true song completions so crossfade and manual skips do not cause early switches.
             if ((songChangedByUri || songRestarted) && previousTrackLikelyFinished && songsRemainingRef.current > 0) {
                 songsRemainingRef.current = Math.max(0, songsRemainingRef.current - 1);
+                // Update status with remaining songs count
+                if (songsRemainingRef.current > 0 && pendingPlaylistUri) {
+                    const pendingName = playlists.find((p) => p.uri === pendingPlaylistUri)?.name ?? "New genre";
+                    setSpotifyStatus(`${pendingName} is winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+                }
             }
 
             if (currentSongUri) {
@@ -1990,7 +1995,7 @@ export default function App() {
 
     const showOverlay = accessState === "scanning" || accessState === "manual" || accessState === "invalid";
     const needsPermission = showOverlay && !permission?.granted;
-    const statusText = "";
+    const statusText = pendingPlaylistUri ? spotifyStatus : "";
     const sortedPlaylists = [...playlists].sort((a, b) => b.votes - a.votes);
     const idleRippleSize = Dimensions.get("window").width * 1.3;
     const idleScreenW = Dimensions.get("window").width;
@@ -2078,7 +2083,6 @@ export default function App() {
                                 resizeMode="contain"
                             />
                         </View>
-                        {statusText ? <Text style={styles.votingSubtitle}>{statusText}</Text> : null}
 
                         <View style={styles.infoColumns}>
                             <View style={styles.infoLeftColumn}>
@@ -2393,6 +2397,7 @@ export default function App() {
                                             </View>
                                         </View>
                                         <View style={styles.waveAndNextContainer}>
+                                            {statusText ? <Text style={styles.switchCountdownText}>{statusText}</Text> : null}
                                             <View style={styles.currentTrackWaveContainer}>
                                                 {waveBars.map((scaleY, index) => (
                                                     <View key={`wave-slot-${index}`} style={styles.currentTrackWaveBarSlot}>
@@ -3426,6 +3431,15 @@ const styles = StyleSheet.create({
         flexDirection: "column",
         alignItems: "flex-end",
         flexShrink: 0,
+    },
+    switchCountdownText: {
+        color: "#4c5c4a",
+        fontSize: 12,
+        textAlign: "right",
+        position: "absolute",
+        top: -31,
+        right: 0,
+        fontFamily: "monospace",
     },
     currentTrackWaveContainer: {
         width: 290,
