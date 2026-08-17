@@ -56,7 +56,7 @@ const MIN_PLAYED_WITHOUT_DURATION_MS = 45000;
 const MEMBER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 const RETURN_WINDOW_MS = 30 * 1000; // 30 seconds
 
-const VOTE_DISPLAY_MS = 6 * 60 * 60 * 1000; // 6 hours — individual vote expires from display after this
+const VOTE_DISPLAY_MS = 2 * 60 * 60 * 1000; // 2 hours — individual vote expires from display after this
 
 /** Returns true if the vote is older than 6 hours */
 function isVoteExpired(votedAt: number): boolean {
