@@ -98,12 +98,6 @@ const INITIAL_PLAYLISTS = [
     },
     {
         id: 5,
-        name: "COUNTRY",
-        votes: 0,
-        uri: "spotify:playlist:0wZ6OL3E3j2E2udKInGYGl",
-    },
-    {
-        id: 6,
         name: "R&B",
         votes: 0,
         uri: "spotify:playlist:45hhpyHDrRtOsFbZPA6yXd",
@@ -660,6 +654,15 @@ export default function App() {
     useEffect(() => {
         (async () => {
             try {
+                // One-time reset: clear stale data from removed playlists
+                const migrationKey = "migration_reset_v97";
+                const migrated = await AsyncStorage.getItem(migrationKey);
+                if (!migrated) {
+                    await AsyncStorage.removeItem(ALLTIME_GENRE_KEY);
+                    await AsyncStorage.removeItem(DAILY_COUNT_KEY);
+                    await AsyncStorage.setItem(migrationKey, "done");
+                }
+
                 const todayUK = new Date().toLocaleDateString("en-GB", { timeZone: "Europe/London" });
                 const storedDaily = await AsyncStorage.getItem(DAILY_COUNT_KEY);
                 if (storedDaily) {
@@ -719,6 +722,12 @@ export default function App() {
                     setPendingPlaylistUri(winner.uri);
                     pendingPlaylistUriRef.current = winner.uri;
                     setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+                } else if (pendingPlaylistUriRef.current && pendingPlaylistUriRef.current !== winner.uri) {
+                    // Pending playlist lost the lead — cancel the countdown
+                    setPendingPlaylistUri(null);
+                    pendingPlaylistUriRef.current = null;
+                    songsRemainingRef.current = 0;
+                    setSpotifyStatus("");
                 }
             }
         }, 30000);
@@ -1691,8 +1700,14 @@ export default function App() {
                 // Give the staff-selected playlist enough votes to lead (current top + 1)
                 const staffPlaylist = INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri);
                 if (staffPlaylist) {
-                    const currentTop = Math.max(...playlists.map((p) => p.votes), 0);
-                    const staffCurrentVotes = playlists.find((p) => p.id === staffPlaylist.id)?.votes ?? 0;
+                    // Calculate live vote counts from ref (closure playlists can be stale)
+                    const activeVotes = individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt));
+                    const liveCounts: Record<number, number> = {};
+                    for (const v of activeVotes) {
+                        liveCounts[v.playlistId] = (liveCounts[v.playlistId] || 0) + 1;
+                    }
+                    const currentTop = Math.max(...Object.values(liveCounts), 0);
+                    const staffCurrentVotes = liveCounts[staffPlaylist.id] ?? 0;
                     const needed = currentTop + 1 - staffCurrentVotes;
                     if (needed > 0) {
                         const now = Date.now();
@@ -1703,11 +1718,12 @@ export default function App() {
                                 votedAt: now,
                             });
                         }
-                        setPlaylists((prev) =>
-                            prev.map((p) =>
-                                p.id === staffPlaylist.id ? { ...p, votes: p.votes + needed } : p
-                            )
-                        );
+                        // Recalculate all counts after adding synthetic votes
+                        const updatedCounts: Record<number, number> = {};
+                        for (const v of individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt))) {
+                            updatedCounts[v.playlistId] = (updatedCounts[v.playlistId] || 0) + 1;
+                        }
+                        setPlaylists(INITIAL_PLAYLISTS.map((p) => ({ ...p, votes: updatedCounts[p.id] || 0 })));
                     }
                 }
 
