@@ -98,6 +98,12 @@ const INITIAL_PLAYLISTS = [
     },
     {
         id: 5,
+        name: "COUNTRY",
+        votes: 0,
+        uri: "spotify:playlist:0wZ6OL3E3j2E2udKInGYGl",
+    },
+    {
+        id: 6,
         name: "R&B",
         votes: 0,
         uri: "spotify:playlist:45hhpyHDrRtOsFbZPA6yXd",
