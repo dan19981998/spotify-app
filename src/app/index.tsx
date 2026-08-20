@@ -869,7 +869,6 @@ export default function App() {
 
         if (session.refreshToken) {
             try {
-                setSpotifyStatus("Refreshing Spotify session...");
                 const body = new URLSearchParams();
                 body.set("grant_type", "refresh_token");
                 body.set("refresh_token", session.refreshToken);
@@ -899,7 +898,6 @@ export default function App() {
                     setSpotifySession(refreshedSession);
                     spotifySessionRef.current = refreshedSession;
                     await saveSpotifySession(refreshedSession);
-                    setSpotifyStatus("Spotify connected. You can start voting now.");
                     return refreshedSession.accessToken;
                 }
             } catch (error) {
@@ -1300,6 +1298,12 @@ export default function App() {
             setPendingPlaylistUri(winner.uri);
             pendingPlaylistUriRef.current = winner.uri;
             setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+        } else if (currentPlaylistUri === winner.uri && pendingPlaylistUriRef.current) {
+            // Currently playing playlist retook the lead — cancel the countdown
+            setPendingPlaylistUri(null);
+            pendingPlaylistUriRef.current = null;
+            songsRemainingRef.current = 0;
+            setSpotifyStatus("");
         }
     };
 
@@ -1729,11 +1733,29 @@ export default function App() {
 
                 // If staff switched to the playlist we were about to switch to,
                 // cancel the pending switch so we don't restart it unnecessarily.
-                if (pendingPlaylistUriRef.current && polledContextUri === pendingPlaylistUriRef.current) {
-                    setPendingPlaylistUri(null);
-                    pendingPlaylistUriRef.current = null;
-                    songsRemainingRef.current = 0;
-                    setSpotifyStatus("");
+                // Also cancel if the staff override made a different playlist the leader.
+                if (pendingPlaylistUriRef.current) {
+                    if (polledContextUri === pendingPlaylistUriRef.current) {
+                        setPendingPlaylistUri(null);
+                        pendingPlaylistUriRef.current = null;
+                        songsRemainingRef.current = 0;
+                        setSpotifyStatus("");
+                    } else if (staffPlaylist) {
+                        // Staff queued something else — check if pending playlist lost the lead
+                        const activeVotesCheck = individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt));
+                        const checkCounts: Record<number, number> = {};
+                        for (const v of activeVotesCheck) {
+                            checkCounts[v.playlistId] = (checkCounts[v.playlistId] || 0) + 1;
+                        }
+                        const checkPlaylists = INITIAL_PLAYLISTS.map((p) => ({ ...p, votes: checkCounts[p.id] || 0 }));
+                        const newWinner = getWinningPlaylist(checkPlaylists);
+                        if (newWinner.uri !== pendingPlaylistUriRef.current) {
+                            setPendingPlaylistUri(null);
+                            pendingPlaylistUriRef.current = null;
+                            songsRemainingRef.current = 0;
+                            setSpotifyStatus("");
+                        }
+                    }
                 }
             }
 
