@@ -102,12 +102,7 @@ const INITIAL_PLAYLISTS = [
         votes: 0,
         uri: "spotify:playlist:0wZ6OL3E3j2E2udKInGYGl",
     },
-    {
-        id: 6,
-        name: "R&B",
-        votes: 0,
-        uri: "spotify:playlist:45hhpyHDrRtOsFbZPA6yXd",
-    },
+
 ];
 
 type AccessState = "scanning" | "manual" | "invalid" | "voting";
@@ -1605,6 +1600,7 @@ export default function App() {
             if (
                 (shouldPreemptiveSwitch || shouldSwitchAfterCountdown) &&
                 pendingPlaylistUri &&
+                pendingPlaylistUriRef.current &&
                 !isSwitchingPlaylistRef.current
             ) {
                 isSwitchingPlaylistRef.current = true;
