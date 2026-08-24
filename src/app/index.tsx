@@ -1218,11 +1218,12 @@ export default function App() {
         // Increment all-time genre count
         setAllTimeGenreCounts((prev) => ({ ...prev, [playlistId]: (prev[playlistId] || 0) + 1 }));
 
-        const nextPlaylists = playlists.map((playlist) =>
-            playlist.id === playlistId
-                ? { ...playlist, votes: playlist.votes + 1 }
-                : playlist
-        );
+        // Recalculate all playlist votes from the ref (single source of truth)
+        const activeCounts: Record<number, number> = {};
+        for (const v of individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt))) {
+            activeCounts[v.playlistId] = (activeCounts[v.playlistId] || 0) + 1;
+        }
+        const nextPlaylists = INITIAL_PLAYLISTS.map((p) => ({ ...p, votes: activeCounts[p.id] || 0 }));
 
         LayoutAnimation.configureNext({
             duration: 800,
