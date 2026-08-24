@@ -581,6 +581,14 @@ export default function App() {
     const spotifySessionRef = useRef<SpotifySession | null>(null);
     const [spotifyStatus, setSpotifyStatus] = useState("Connect Spotify to enable playback.");
     const [pollingDebug, setPollingDebug] = useState("");
+    const eventLogRef = useRef<{ time: number; msg: string }[]>([]);
+    const [eventLog, setEventLog] = useState<{ time: number; msg: string }[]>([]);
+    const addLog = (msg: string) => {
+        const now = Date.now();
+        const cutoff = now - 24 * 60 * 60 * 1000;
+        eventLogRef.current = [...eventLogRef.current.filter((e) => e.time > cutoff).slice(-99), { time: now, msg }];
+        setEventLog([...eventLogRef.current]);
+    };
     const [currentTrackArtUrl, setCurrentTrackArtUrl] = useState<string | null>(null);
     const [currentTrackName, setCurrentTrackName] = useState("");
     const [currentTrackArtist, setCurrentTrackArtist] = useState("");
@@ -705,6 +713,7 @@ export default function App() {
             const before = individualVotesRef.current.length;
             const active = individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt));
             if (active.length !== before) {
+                addLog(`EXPIRED: ${before - active.length} vote(s) removed (${active.length} remain)`);
                 individualVotesRef.current = active;
                 // Recalculate playlist vote counts from remaining active votes
                 const counts: Record<number, number> = {};
@@ -1209,6 +1218,8 @@ export default function App() {
     };
 
     const applyVote = async (playlistId: number) => {
+        const votedName = INITIAL_PLAYLISTS.find((p) => p.id === playlistId)?.name ?? `id:${playlistId}`;
+        addLog(`VOTE: ${votedName} by ${activeMemberId || "unknown"}`);
         // Record this individual vote with a timestamp for per-user expiry
         individualVotesRef.current = [
             ...individualVotesRef.current,
@@ -1297,15 +1308,19 @@ export default function App() {
             if (!pendingPlaylistUriRef.current) {
                 songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
             }
+            addLog(`COUNTDOWN START: ${winner.name} (${winner.votes}) — ${songsRemainingRef.current} songs`);
             setPendingPlaylistUri(winner.uri);
             pendingPlaylistUriRef.current = winner.uri;
             setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
         } else if (currentPlaylistUri === winner.uri && pendingPlaylistUriRef.current) {
             // Currently playing playlist retook the lead — cancel the countdown
+            addLog(`COUNTDOWN CANCEL: playing playlist retook lead`);
             setPendingPlaylistUri(null);
             pendingPlaylistUriRef.current = null;
             songsRemainingRef.current = 0;
             setSpotifyStatus("");
+        } else if (currentPlaylistUri !== winner.uri && winner.votes < MIN_VOTES_TO_SWITCH) {
+            addLog(`NO SWITCH: ${winner.name} (${winner.votes}) below min (${MIN_VOTES_TO_SWITCH})`);
         }
     };
 
@@ -1572,6 +1587,7 @@ export default function App() {
             // Count only true song completions so crossfade and manual skips do not cause early switches.
             if ((songChangedByUri || songRestarted) && previousTrackLikelyFinished && songsRemainingRef.current > 0) {
                 songsRemainingRef.current = Math.max(0, songsRemainingRef.current - 1);
+                addLog(`SONG DONE: ${songsRemainingRef.current} left`);
                 // Update status with remaining songs count
                 if (songsRemainingRef.current > 0 && pendingPlaylistUri) {
                     const pendingName = playlists.find((p) => p.uri === pendingPlaylistUri)?.name ?? "New genre";
@@ -1605,6 +1621,7 @@ export default function App() {
                 !isSwitchingPlaylistRef.current
             ) {
                 isSwitchingPlaylistRef.current = true;
+                addLog(`SWITCH: → ${INITIAL_PLAYLISTS.find((p) => p.uri === pendingPlaylistUri)?.name ?? pendingPlaylistUri}`);
                 const didPlay = await playPlaylist(pendingPlaylistUri);
                 if (didPlay) {
                     setCurrentPlaylistUri(pendingPlaylistUri);
@@ -1701,6 +1718,7 @@ export default function App() {
                 currentPlaylistUriRef.current &&
                 polledContextUri !== currentPlaylistUriRef.current
             ) {
+                addLog(`STAFF OVERRIDE: ${INITIAL_PLAYLISTS.find((p) => p.uri === currentPlaylistUriRef.current)?.name ?? "?"} → ${INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri)?.name ?? polledContextUri}`);
                 setCurrentPlaylistUri(polledContextUri);
                 currentPlaylistUriRef.current = polledContextUri;
 
@@ -2700,6 +2718,21 @@ export default function App() {
                                             {spotifySession ? "Reconnect Spotify" : "Connect Spotify"}
                                         </Text>
                                     </TouchableOpacity>
+                                </View>
+
+                                <View style={styles.adminSection}>
+                                    <Text style={styles.adminSectionTitle}>Event Log</Text>
+                                    <ScrollView style={{ maxHeight: 220, backgroundColor: "#0a0a0a", borderRadius: 10, padding: 10, borderWidth: 1, borderColor: "#222" }} nestedScrollEnabled>
+                                        {eventLog.length === 0 ? (
+                                            <Text style={{ color: "#555", fontSize: 12, fontStyle: "italic" }}>No events yet</Text>
+                                        ) : (
+                                            [...eventLog].reverse().map((entry, i) => (
+                                                <Text key={i} style={{ color: entry.msg.includes("CANCEL") ? "#ff4444" : entry.msg.includes("SWITCH") || entry.msg.includes("OVERRIDE") ? "#ff9900" : entry.msg.includes("VOTE") ? "#44dd44" : entry.msg.includes("EXPIRED") ? "#888" : "#ccc", fontSize: 11, marginBottom: 3, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>
+                                                    {new Date(entry.time).toLocaleTimeString()} {entry.msg}
+                                                </Text>
+                                            ))
+                                        )}
+                                    </ScrollView>
                                 </View>
 
                                 <View style={styles.adminSection}>
