@@ -2223,17 +2223,17 @@ export default function App() {
                                             const TITLE_IMAGE_MAP: Record<string, any> = {
                                                 "US Rap": require("../../assets/images/us-rap-title.png"),
                                                 "D&B": require("../../assets/images/drum-and-bass.png"),
-                                                "ROCK AND METAL": require("../../assets/images/rock-and-metal.png"),
-                                                "TECH HOUSE": require("../../assets/images/tech-house-title.png"),
-                                                "COUNTRY": require("../../assets/images/country-title.png"),
+                                                "Metal": require("../../assets/images/rock-and-metal.png"),
+                                                "House": require("../../assets/images/tech-house-title.png"),
+                                                "Rock": require("../../assets/images/country-title.png"),
                                                 "R&B": require("../../assets/images/rnb-title.png"),
                                             };
                                             const TITLE_STYLE_MAP: Record<string, any> = {
                                                 "US Rap": styles.playlistTitleImageUsRap,
                                                 "D&B": styles.playlistTitleImageDnb,
-                                                "ROCK AND METAL": styles.playlistTitleImageRock,
-                                                "TECH HOUSE": styles.playlistTitleImageTech,
-                                                "COUNTRY": styles.playlistTitleImageCountry,
+                                                "Metal": styles.playlistTitleImageRock,
+                                                "House": styles.playlistTitleImageTech,
+                                                "Rock": styles.playlistTitleImageCountry,
                                                 "R&B": styles.playlistTitleImageRnb,
                                             };
                                             const titleImage = TITLE_IMAGE_MAP[playlist.name] ?? null;
@@ -2326,17 +2326,17 @@ export default function App() {
                                             const TITLE_IMAGE_MAP: Record<string, any> = {
                                                 "US Rap": require("../../assets/images/us-rap-title.png"),
                                                 "D&B": require("../../assets/images/drum-and-bass.png"),
-                                                "ROCK AND METAL": require("../../assets/images/rock-and-metal.png"),
-                                                "TECH HOUSE": require("../../assets/images/tech-house-title.png"),
-                                                "COUNTRY": require("../../assets/images/country-title.png"),
+                                                "Metal": require("../../assets/images/rock-and-metal.png"),
+                                                "House": require("../../assets/images/tech-house-title.png"),
+                                                "Rock": require("../../assets/images/country-title.png"),
                                                 "R&B": require("../../assets/images/rnb-title.png"),
                                             };
                                             const TITLE_STYLE_MAP: Record<string, any> = {
                                                 "US Rap": styles.playlistTitleImageUsRap,
                                                 "D&B": styles.playlistTitleImageDnb,
-                                                "ROCK AND METAL": styles.playlistTitleImageRock,
-                                                "TECH HOUSE": styles.playlistTitleImageTech,
-                                                "COUNTRY": styles.playlistTitleImageCountry,
+                                                "Metal": styles.playlistTitleImageRock,
+                                                "House": styles.playlistTitleImageTech,
+                                                "Rock": styles.playlistTitleImageCountry,
                                                 "R&B": styles.playlistTitleImageRnb,
                                             };
                                             const titleImage = TITLE_IMAGE_MAP[playlist.name] ?? null;
