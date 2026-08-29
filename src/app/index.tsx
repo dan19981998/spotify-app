@@ -86,19 +86,19 @@ const INITIAL_PLAYLISTS = [
     },
     {
         id: 3,
-        name: "ROCK AND METAL",
+        name: "Metal",
         votes: 0,
         uri: "spotify:playlist:5oVeob1LuLEDdTFmUSkkQ5",
     },
     {
         id: 4,
-        name: "TECH HOUSE",
+        name: "House",
         votes: 0,
         uri: "spotify:playlist:3ErGblZL1xSUmp9utwjMqf",
     },
     {
         id: 5,
-        name: "COUNTRY",
+        name: "Rock",
         votes: 0,
         uri: "spotify:playlist:0wZ6OL3E3j2E2udKInGYGl",
     },
@@ -1165,7 +1165,7 @@ export default function App() {
             const pid = pendingVoteRef.current;
             pendingVoteRef.current = null;
             // Apply vote directly (can't use handleVote — stale closure sees hasAccess=false)
-            void applyVote(pid).then(() => {
+            void applyVote(pid, trimmed).then(() => {
                 setHasAccess(false);
                 if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
                 // Record genre vote
@@ -1217,13 +1217,14 @@ export default function App() {
         }, 600);
     };
 
-    const applyVote = async (playlistId: number) => {
+    const applyVote = async (playlistId: number, memberId?: string) => {
+        const resolvedMember = memberId || activeMemberId || "unknown";
         const votedName = INITIAL_PLAYLISTS.find((p) => p.id === playlistId)?.name ?? `id:${playlistId}`;
-        addLog(`VOTE: ${votedName} by ${activeMemberId || "unknown"}`);
+        addLog(`VOTE: ${votedName} by ${resolvedMember}`);
         // Record this individual vote with a timestamp for per-user expiry
         individualVotesRef.current = [
             ...individualVotesRef.current,
-            { memberId: activeMemberId || "unknown", playlistId, votedAt: Date.now() },
+            { memberId: resolvedMember, playlistId, votedAt: Date.now() },
         ];
 
         // Increment all-time genre count
