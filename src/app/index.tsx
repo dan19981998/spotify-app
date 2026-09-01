@@ -30,7 +30,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 
-const SONGS_BEFORE_GENRE_SWITCH = 5;
+const SONGS_BEFORE_GENRE_SWITCH = 3;
 const MIN_VOTES_TO_SWITCH = 2;
 const SPOTIFY_CLIENT_ID = "5c6044e666b741b980c9821508f65443";
 const SPOTIFY_AUTHORIZE_ENDPOINT = "https://accounts.spotify.com/authorize";
@@ -102,6 +102,13 @@ const INITIAL_PLAYLISTS = [
         votes: 0,
         uri: "spotify:playlist:0wZ6OL3E3j2E2udKInGYGl",
     },
+    {
+        id: 6,
+        name: "Pop",
+        votes: 0,
+        uri: "decoy:pop",
+        decoy: true,
+    },
 
 ];
 
@@ -112,6 +119,7 @@ type Playlist = {
     name: string;
     votes: number;
     uri: string;
+    decoy?: boolean;
 };
 
 type SpotifySession = {
@@ -302,7 +310,8 @@ async function createPkcePair() {
 }
 
 function getWinningPlaylist(playlists: Playlist[]) {
-    return playlists.reduce((winner, playlist) =>
+    const eligible = playlists.filter((p) => !p.decoy);
+    return eligible.reduce((winner, playlist) =>
         playlist.votes > winner.votes ? playlist : winner
     );
 }
@@ -664,7 +673,7 @@ export default function App() {
         (async () => {
             try {
                 // One-time reset: clear stale data from removed playlists
-                const migrationKey = "migration_reset_v97";
+                const migrationKey = "migration_reset_v104";
                 const migrated = await AsyncStorage.getItem(migrationKey);
                 if (!migrated) {
                     await AsyncStorage.removeItem(ALLTIME_GENRE_KEY);
@@ -731,7 +740,7 @@ export default function App() {
                     }
                     setPendingPlaylistUri(winner.uri);
                     pendingPlaylistUriRef.current = winner.uri;
-                    setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+                    setSpotifyStatus(`${winner.name} winning — ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
                 } else if (pendingPlaylistUriRef.current && pendingPlaylistUriRef.current !== winner.uri) {
                     // Pending playlist lost the lead — cancel the countdown
                     setPendingPlaylistUri(null);
@@ -1286,7 +1295,7 @@ export default function App() {
                                     songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
                                     setPendingPlaylistUri(winner.uri);
                                     pendingPlaylistUriRef.current = winner.uri;
-                                    setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+                                    setSpotifyStatus(`${winner.name} winning — ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
                                 }
                                 return;
                             }
@@ -1312,7 +1321,7 @@ export default function App() {
             addLog(`COUNTDOWN START: ${winner.name} (${winner.votes}) — ${songsRemainingRef.current} songs`);
             setPendingPlaylistUri(winner.uri);
             pendingPlaylistUriRef.current = winner.uri;
-            setSpotifyStatus(`${winner.name} is now winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+            setSpotifyStatus(`${winner.name} winning — ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
         } else if (currentPlaylistUri === winner.uri && pendingPlaylistUriRef.current) {
             // Currently playing playlist retook the lead — cancel the countdown
             addLog(`COUNTDOWN CANCEL: playing playlist retook lead`);
@@ -1586,13 +1595,16 @@ export default function App() {
                     : previousProgress >= MIN_PLAYED_WITHOUT_DURATION_MS);
 
             // Count only true song completions so crossfade and manual skips do not cause early switches.
+            if (songChangedByUri || songRestarted) {
+                addLog(`TRACK CHG: changed=${songChangedByUri} restart=${songRestarted} finished=${previousTrackLikelyFinished} prev=${previousProgress}/${previousDuration} remaining=${songsRemainingRef.current}`);
+            }
             if ((songChangedByUri || songRestarted) && previousTrackLikelyFinished && songsRemainingRef.current > 0) {
                 songsRemainingRef.current = Math.max(0, songsRemainingRef.current - 1);
                 addLog(`SONG DONE: ${songsRemainingRef.current} left`);
                 // Update status with remaining songs count
                 if (songsRemainingRef.current > 0 && pendingPlaylistUri) {
                     const pendingName = playlists.find((p) => p.uri === pendingPlaylistUri)?.name ?? "New genre";
-                    setSpotifyStatus(`${pendingName} is winning — switching in ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+                    setSpotifyStatus(`${pendingName} winning — ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
                 }
             }
 
@@ -2226,6 +2238,7 @@ export default function App() {
                                                 "Metal": require("../../assets/images/rock-and-metal.png"),
                                                 "House": require("../../assets/images/tech-house-title.png"),
                                                 "Rock": require("../../assets/images/country-title.png"),
+                                                "Pop": require("../../assets/images/pop.png"),
                                                 "R&B": require("../../assets/images/rnb-title.png"),
                                             };
                                             const TITLE_STYLE_MAP: Record<string, any> = {
@@ -2234,6 +2247,7 @@ export default function App() {
                                                 "Metal": styles.playlistTitleImageRock,
                                                 "House": styles.playlistTitleImageTech,
                                                 "Rock": styles.playlistTitleImageCountry,
+                                                "Pop": styles.playlistTitleImagePop,
                                                 "R&B": styles.playlistTitleImageRnb,
                                             };
                                             const titleImage = TITLE_IMAGE_MAP[playlist.name] ?? null;
@@ -2329,6 +2343,7 @@ export default function App() {
                                                 "Metal": require("../../assets/images/rock-and-metal.png"),
                                                 "House": require("../../assets/images/tech-house-title.png"),
                                                 "Rock": require("../../assets/images/country-title.png"),
+                                                "Pop": require("../../assets/images/pop.png"),
                                                 "R&B": require("../../assets/images/rnb-title.png"),
                                             };
                                             const TITLE_STYLE_MAP: Record<string, any> = {
@@ -2337,6 +2352,7 @@ export default function App() {
                                                 "Metal": styles.playlistTitleImageRock,
                                                 "House": styles.playlistTitleImageTech,
                                                 "Rock": styles.playlistTitleImageCountry,
+                                                "Pop": styles.playlistTitleImagePop,
                                                 "R&B": styles.playlistTitleImageRnb,
                                             };
                                             const titleImage = TITLE_IMAGE_MAP[playlist.name] ?? null;
@@ -2503,7 +2519,7 @@ export default function App() {
                                             </View>
                                         </View>
                                         <View style={styles.waveAndNextContainer}>
-                                            {statusText ? <Text style={styles.switchCountdownText}>{statusText}</Text> : null}
+                                            {statusText ? <Text numberOfLines={1} style={styles.switchCountdownText}>{statusText}</Text> : null}
                                             <View style={styles.currentTrackWaveContainer}>
                                                 {waveBars.map((scaleY, index) => (
                                                     <View key={`wave-slot-${index}`} style={styles.currentTrackWaveBarSlot}>
@@ -3555,7 +3571,7 @@ const styles = StyleSheet.create({
     },
     switchCountdownText: {
         color: "#4c5c4a",
-        fontSize: 12,
+        fontSize: 10,
         textAlign: "right",
         position: "absolute",
         top: -31,
@@ -3931,6 +3947,12 @@ const styles = StyleSheet.create({
     },
     playlistTitleImageCountry: {
         width: 118,
+        height: 24,
+        alignSelf: "flex-start",
+        marginLeft: 0,
+    },
+    playlistTitleImagePop: {
+        width: 110,
         height: 24,
         alignSelf: "flex-start",
         marginLeft: 0,
