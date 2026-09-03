@@ -1884,6 +1884,12 @@ export default function App() {
 
         };
 
+        void refreshCurrentTrackArtwork();
+
+        const artworkInterval = setInterval(() => {
+            void refreshCurrentTrackArtwork();
+        }, 15000);
+
         const tick = setInterval(() => {
             setTrackProgressMs((prev) => {
                 const next = prev + 1000;
@@ -1894,7 +1900,11 @@ export default function App() {
             });
         }, 1000);
 
-        return () => clearInterval(tick);
+        return () => {
+            isActive = false;
+            clearInterval(artworkInterval);
+            clearInterval(tick);
+        };
     }, [isWebPreviewMode, trackDurationMs, currentTrackName]);
 
     useEffect(() => {
