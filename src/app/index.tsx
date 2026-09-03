@@ -1672,7 +1672,8 @@ export default function App() {
                 typeof previousProgress === "number" &&
                 (typeof previousDuration === "number" && previousDuration > 0
                     ? previousDuration - previousProgress <= CROSSFADE_SAFE_COMPLETION_WINDOW_MS ||
-                    previousProgress / previousDuration >= MIN_COMPLETION_RATIO
+                    previousProgress / previousDuration >= MIN_COMPLETION_RATIO ||
+                    previousProgress >= MIN_PLAYED_WITHOUT_DURATION_MS
                     : previousProgress >= MIN_PLAYED_WITHOUT_DURATION_MS);
 
             // Count only true song completions so crossfade and manual skips do not cause early switches.
