@@ -1719,14 +1719,37 @@ export default function App() {
             }
         };
 
-        // Run immediately so we don't miss the first track transition window.
-        void checkPendingSwitch();
+        // Poll lightly during countdown, then tightly on the final song so pause timing is closer.
+        let isCancelled = false;
+        let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-        const interval = setInterval(() => {
-            void checkPendingSwitch();
-        }, 8000);
+        const queueNextPoll = () => {
+            if (isCancelled) {
+                return;
+            }
+            const currentProgressMs = lastTrackProgressMsRef.current ?? 0;
+            const onFinalSong = songsRemainingRef.current <= 1;
+            const shouldTightPoll = onFinalSong && currentProgressMs >= 120000;
+            const delayMs = shouldTightPoll ? 1000 : 8000;
+            pollTimer = setTimeout(() => {
+                void runPollLoop();
+            }, delayMs);
+        };
 
-        return () => clearInterval(interval);
+        const runPollLoop = async () => {
+            await checkPendingSwitch();
+            queueNextPoll();
+        };
+
+        void runPollLoop();
+
+        return () => {
+            isCancelled = true;
+            if (pollTimer) {
+                clearTimeout(pollTimer);
+                pollTimer = null;
+            }
+        };
     }, [pendingPlaylistUri]);
 
     useEffect(() => {
