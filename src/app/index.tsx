@@ -634,6 +634,76 @@ export default function App() {
     const memberCount = Object.keys(memberRecords).length;
     const selectedMemberRecord = activeMemberId ? memberRecords[activeMemberId] : null;
 
+    const clearGenreSwitchDelay = () => {
+        if (genreSwitchDelayTimerRef.current) {
+            clearTimeout(genreSwitchDelayTimerRef.current);
+            genreSwitchDelayTimerRef.current = null;
+        }
+        isSwitchingPlaylistRef.current = false;
+    };
+
+    const pauseSpotifyPlayback = async () => {
+        const accessToken = await getValidSpotifyAccessToken();
+        if (!accessToken) {
+            return;
+        }
+        await fetch("https://api.spotify.com/v1/me/player/pause", {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+    };
+
+    const resumeSpotifyPlayback = async () => {
+        const accessToken = await getValidSpotifyAccessToken();
+        if (!accessToken) {
+            return;
+        }
+        await fetch("https://api.spotify.com/v1/me/player/play", {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+    };
+
+    const scheduleGenreSwitch = async (playlistUri: string) => {
+        if (genreSwitchDelayTimerRef.current) {
+            return;
+        }
+
+        isSwitchingPlaylistRef.current = true;
+        addLog(`SWITCH DELAY: → ${INITIAL_PLAYLISTS.find((p) => p.uri === playlistUri)?.name ?? playlistUri} in 3s`);
+
+        await pauseSpotifyPlayback().catch(() => undefined);
+
+        genreSwitchDelayTimerRef.current = setTimeout(async () => {
+            try {
+                if (pendingPlaylistUriRef.current !== playlistUri) {
+                    return;
+                }
+
+                addLog(`SWITCH: → ${INITIAL_PLAYLISTS.find((p) => p.uri === playlistUri)?.name ?? playlistUri}`);
+                const didPlay = await playPlaylist(playlistUri);
+                if (didPlay) {
+                    setCurrentPlaylistUri(playlistUri);
+                    currentPlaylistUriRef.current = playlistUri;
+                    setPendingPlaylistUri(null);
+                    pendingPlaylistUriRef.current = null;
+                    songsRemainingRef.current = 0;
+                    lastTrackedSongUriRef.current = null;
+                    lastTrackProgressMsRef.current = null;
+                    lastTrackDurationMsRef.current = null;
+                }
+            } finally {
+                clearGenreSwitchDelay();
+            }
+        }, 3000);
+    };
+
+    useEffect(() => {
+        return () => {
+            clearGenreSwitchDelay();
+        };
+    }, []);
+
     // Load member records and vote history from storage on mount
     useEffect(() => {
         (async () => {
@@ -774,6 +844,7 @@ export default function App() {
     const lastTrackProgressMsRef = useRef<number | null>(null);
     const lastTrackDurationMsRef = useRef<number | null>(null);
     const isSwitchingPlaylistRef = useRef(false);
+    const genreSwitchDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const waveBarsRef = useRef<Animated.Value[]>([]);
     if (waveBarsRef.current.length !== WAVE_BAR_COUNT) {
         waveBarsRef.current = Array.from(
@@ -1329,7 +1400,17 @@ export default function App() {
             pendingPlaylistUriRef.current = null;
             songsRemainingRef.current = 0;
             setSpotifyStatus("");
+            clearGenreSwitchDelay();
+            await resumeSpotifyPlayback().catch(() => undefined);
         } else if (currentPlaylistUri !== winner.uri && winner.votes < MIN_VOTES_TO_SWITCH) {
+            if (pendingPlaylistUriRef.current) {
+                setPendingPlaylistUri(null);
+                pendingPlaylistUriRef.current = null;
+                songsRemainingRef.current = 0;
+                setSpotifyStatus("");
+                clearGenreSwitchDelay();
+                await resumeSpotifyPlayback().catch(() => undefined);
+            }
             addLog(`NO SWITCH: ${winner.name} (${winner.votes}) below min (${MIN_VOTES_TO_SWITCH})`);
         }
     };
@@ -1626,27 +1707,14 @@ export default function App() {
                 timeRemainingMs <= SPOTIFY_CROSSFADE_MS + PRE_SWITCH_BUFFER_MS;
             const shouldSwitchAfterCountdown = songsRemainingRef.current <= 0;
 
-            // Pre-switch before crossfade starts on the final allowed song, or switch once countdown is complete.
+            // Pause now, then switch after a 3 second silence so the genre change is clean.
             if (
                 (shouldPreemptiveSwitch || shouldSwitchAfterCountdown) &&
                 pendingPlaylistUri &&
                 pendingPlaylistUriRef.current &&
                 !isSwitchingPlaylistRef.current
             ) {
-                isSwitchingPlaylistRef.current = true;
-                addLog(`SWITCH: → ${INITIAL_PLAYLISTS.find((p) => p.uri === pendingPlaylistUri)?.name ?? pendingPlaylistUri}`);
-                const didPlay = await playPlaylist(pendingPlaylistUri);
-                if (didPlay) {
-                    setCurrentPlaylistUri(pendingPlaylistUri);
-                    currentPlaylistUriRef.current = pendingPlaylistUri;
-                    setPendingPlaylistUri(null);
-                    pendingPlaylistUriRef.current = null;
-                    songsRemainingRef.current = 0;
-                    lastTrackedSongUriRef.current = null;
-                    lastTrackProgressMsRef.current = null;
-                    lastTrackDurationMsRef.current = null;
-                }
-                isSwitchingPlaylistRef.current = false;
+                await scheduleGenreSwitch(pendingPlaylistUri);
             }
         };
 
@@ -1723,76 +1791,6 @@ export default function App() {
                 return;
             }
 
-            // Detect external playlist change (e.g. staff queued a different playlist)
-            const polledContextUri = data.context?.uri;
-            if (
-                polledContextUri &&
-                polledContextUri.startsWith("spotify:playlist:") &&
-                currentPlaylistUriRef.current &&
-                polledContextUri !== currentPlaylistUriRef.current
-            ) {
-                addLog(`STAFF OVERRIDE: ${INITIAL_PLAYLISTS.find((p) => p.uri === currentPlaylistUriRef.current)?.name ?? "?"} → ${INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri)?.name ?? polledContextUri}`);
-                setCurrentPlaylistUri(polledContextUri);
-                currentPlaylistUriRef.current = polledContextUri;
-
-                // Give the staff-selected playlist enough votes to lead (current top + 1)
-                const staffPlaylist = INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri);
-                if (staffPlaylist) {
-                    // Calculate live vote counts from ref (closure playlists can be stale)
-                    const activeVotes = individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt));
-                    const liveCounts: Record<number, number> = {};
-                    for (const v of activeVotes) {
-                        liveCounts[v.playlistId] = (liveCounts[v.playlistId] || 0) + 1;
-                    }
-                    const currentTop = Math.max(...Object.values(liveCounts), 0);
-                    const staffCurrentVotes = liveCounts[staffPlaylist.id] ?? 0;
-                    const needed = currentTop + 1 - staffCurrentVotes;
-                    if (needed > 0) {
-                        const now = Date.now();
-                        for (let i = 0; i < needed; i++) {
-                            individualVotesRef.current.push({
-                                memberId: `staff-override-${now}`,
-                                playlistId: staffPlaylist.id,
-                                votedAt: now,
-                            });
-                        }
-                        // Recalculate all counts after adding synthetic votes
-                        const updatedCounts: Record<number, number> = {};
-                        for (const v of individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt))) {
-                            updatedCounts[v.playlistId] = (updatedCounts[v.playlistId] || 0) + 1;
-                        }
-                        setPlaylists(INITIAL_PLAYLISTS.map((p) => ({ ...p, votes: updatedCounts[p.id] || 0 })));
-                    }
-                }
-
-                // If staff switched to the playlist we were about to switch to,
-                // cancel the pending switch so we don't restart it unnecessarily.
-                // Also cancel if the staff override made a different playlist the leader.
-                if (pendingPlaylistUriRef.current) {
-                    if (polledContextUri === pendingPlaylistUriRef.current) {
-                        setPendingPlaylistUri(null);
-                        pendingPlaylistUriRef.current = null;
-                        songsRemainingRef.current = 0;
-                        setSpotifyStatus("");
-                    } else if (staffPlaylist) {
-                        // Staff queued something else — check if pending playlist lost the lead
-                        const activeVotesCheck = individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt));
-                        const checkCounts: Record<number, number> = {};
-                        for (const v of activeVotesCheck) {
-                            checkCounts[v.playlistId] = (checkCounts[v.playlistId] || 0) + 1;
-                        }
-                        const checkPlaylists = INITIAL_PLAYLISTS.map((p) => ({ ...p, votes: checkCounts[p.id] || 0 }));
-                        const newWinner = getWinningPlaylist(checkPlaylists);
-                        if (newWinner.uri !== pendingPlaylistUriRef.current) {
-                            setPendingPlaylistUri(null);
-                            pendingPlaylistUriRef.current = null;
-                            songsRemainingRef.current = 0;
-                            setSpotifyStatus("");
-                        }
-                    }
-                }
-            }
-
             const artUrl = data.item.album?.images?.[0]?.url ?? null;
             const trackName = data.item.name ?? "";
             const trackArtist = data.item.artists?.map((artist) => artist.name).join(", ") ?? "";
@@ -1828,36 +1826,63 @@ export default function App() {
                         }
                     } catch { }
                 }
+
+                // Manual staff genre changes should also get the 3 second gap.
+                const polledContextUri = data.context?.uri;
+                if (
+                    polledContextUri &&
+                    polledContextUri.startsWith("spotify:playlist:") &&
+                    currentPlaylistUriRef.current &&
+                    polledContextUri !== currentPlaylistUriRef.current
+                ) {
+                    addLog(`STAFF OVERRIDE: ${INITIAL_PLAYLISTS.find((p) => p.uri === currentPlaylistUriRef.current)?.name ?? "?"} → ${INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri)?.name ?? polledContextUri}`);
+
+                    // Give the staff-selected playlist enough votes to lead (current top + 1)
+                    const staffPlaylist = INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri);
+                    if (staffPlaylist) {
+                        const activeVotes = individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt));
+                        const liveCounts: Record<number, number> = {};
+                        for (const v of activeVotes) {
+                            liveCounts[v.playlistId] = (liveCounts[v.playlistId] || 0) + 1;
+                        }
+                        const currentTop = Math.max(...Object.values(liveCounts), 0);
+                        const staffCurrentVotes = liveCounts[staffPlaylist.id] ?? 0;
+                        const needed = currentTop + 1 - staffCurrentVotes;
+                        if (needed > 0) {
+                            const now = Date.now();
+                            for (let i = 0; i < needed; i++) {
+                                individualVotesRef.current.push({
+                                    memberId: `staff-override-${now}`,
+                                    playlistId: staffPlaylist.id,
+                                    votedAt: now,
+                                });
+                            }
+
+                            const updatedCounts: Record<number, number> = {};
+                            for (const v of individualVotesRef.current.filter((v) => !isVoteExpired(v.votedAt))) {
+                                updatedCounts[v.playlistId] = (updatedCounts[v.playlistId] || 0) + 1;
+                            }
+                            setPlaylists(INITIAL_PLAYLISTS.map((p) => ({ ...p, votes: updatedCounts[p.id] || 0 })));
+                        }
+                    }
+
+                    if (pendingPlaylistUriRef.current && pendingPlaylistUriRef.current !== polledContextUri) {
+                        clearGenreSwitchDelay();
+                    }
+
+                    setPendingPlaylistUri(polledContextUri);
+                    pendingPlaylistUriRef.current = polledContextUri;
+                    songsRemainingRef.current = SONGS_BEFORE_GENRE_SWITCH;
+                    setSpotifyStatus(`${INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri)?.name ?? "New genre"} winning — ${songsRemainingRef.current} song${songsRemainingRef.current === 1 ? "" : "s"}`);
+                    if (!isSwitchingPlaylistRef.current) {
+                        await scheduleGenreSwitch(polledContextUri);
+                    }
+                }
             }
+
+            if (trackDurationMs <= 0) return;
+
         };
-
-        void refreshCurrentTrackArtwork();
-        const interval = setInterval(() => {
-            void refreshCurrentTrackArtwork();
-        }, 15000);
-
-        return () => {
-            isActive = false;
-            clearInterval(interval);
-        };
-    }, [accessState]);
-
-    useEffect(() => {
-        if (!isWebPreviewMode || accessState !== "voting") {
-            return;
-        }
-
-        setCurrentTrackName(WEB_PREVIEW_TRACK.name);
-        setCurrentTrackArtist(WEB_PREVIEW_TRACK.artist);
-        setNextTrackName(WEB_PREVIEW_TRACK.nextName);
-        setNextTrackArtist(WEB_PREVIEW_TRACK.nextArtist);
-        setTrackDurationMs(WEB_PREVIEW_TRACK.durationMs);
-        setTrackProgressMs(WEB_PREVIEW_TRACK.startProgressMs);
-        setSpotifyStatus("Local preview mode.");
-    }, [accessState, isWebPreviewMode]);
-
-    useEffect(() => {
-        if (trackDurationMs <= 0) return;
 
         const tick = setInterval(() => {
             setTrackProgressMs((prev) => {
