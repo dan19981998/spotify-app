@@ -79,10 +79,11 @@ const INITIAL_PLAYLISTS = [
         uri: "spotify:playlist:2Yo3UTLrm3hzCVoU5Olz4m",
     },
     {
-        id: 2,
-        name: "D&B",
+        id: 6,
+        name: "Pop",
         votes: 0,
-        uri: "spotify:playlist:0dAQ9Bk6xmi8keUcyRwhXc",
+        uri: "decoy:pop",
+        decoy: true,
     },
     {
         id: 3,
@@ -103,11 +104,10 @@ const INITIAL_PLAYLISTS = [
         uri: "spotify:playlist:0wZ6OL3E3j2E2udKInGYGl",
     },
     {
-        id: 6,
-        name: "Pop",
+        id: 2,
+        name: "D&B",
         votes: 0,
-        uri: "decoy:pop",
-        decoy: true,
+        uri: "spotify:playlist:0dAQ9Bk6xmi8keUcyRwhXc",
     },
 
 ];
