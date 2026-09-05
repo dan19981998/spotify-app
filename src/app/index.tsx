@@ -653,63 +653,38 @@ export default function App() {
         isSwitchingPlaylistRef.current = false;
     };
 
-    const pauseSpotifyPlayback = async () => {
-        const accessToken = await getValidSpotifyAccessToken();
-        if (!accessToken) {
-            return;
-        }
-        await fetch("https://api.spotify.com/v1/me/player/pause", {
-            method: "PUT",
-            headers: { Authorization: `Bearer ${accessToken}` },
-        });
-    };
-
-    const resumeSpotifyPlayback = async () => {
-        const accessToken = await getValidSpotifyAccessToken();
-        if (!accessToken) {
-            return;
-        }
-        await fetch("https://api.spotify.com/v1/me/player/play", {
-            method: "PUT",
-            headers: { Authorization: `Bearer ${accessToken}` },
-        });
-    };
-
     const scheduleGenreSwitch = async (playlistUri: string) => {
-        if (genreSwitchDelayTimerRef.current) {
+        if (isSwitchingPlaylistRef.current) {
             return;
         }
 
         isSwitchingPlaylistRef.current = true;
-        addLog(`SWITCH DELAY: → ${INITIAL_PLAYLISTS.find((p) => p.uri === playlistUri)?.name ?? playlistUri} in 3s`);
 
-        await pauseSpotifyPlayback().catch(() => undefined);
-
-        genreSwitchDelayTimerRef.current = setTimeout(async () => {
-            try {
-                if (pendingPlaylistUriRef.current !== playlistUri) {
-                    return;
-                }
-
-                addLog(`SWITCH: → ${INITIAL_PLAYLISTS.find((p) => p.uri === playlistUri)?.name ?? playlistUri}`);
-                const didPlay = await playPlaylist(playlistUri);
-                if (didPlay) {
-                    // App just changed genre itself — ignore staff-override detection briefly so
-                    // Spotify's stale currently-playing context isn't mistaken for a manual change.
-                    appSwitchGraceUntilMsRef.current = Date.now() + APP_SWITCH_GRACE_MS;
-                    setCurrentPlaylistUri(playlistUri);
-                    currentPlaylistUriRef.current = playlistUri;
-                    setPendingPlaylistUri(null);
-                    pendingPlaylistUriRef.current = null;
-                    songsRemainingRef.current = 0;
-                    lastTrackedSongUriRef.current = null;
-                    lastTrackProgressMsRef.current = null;
-                    lastTrackDurationMsRef.current = null;
-                }
-            } finally {
-                clearGenreSwitchDelay();
+        try {
+            if (pendingPlaylistUriRef.current !== playlistUri) {
+                return;
             }
-        }, 3000);
+
+            addLog(`SWITCH: → ${INITIAL_PLAYLISTS.find((p) => p.uri === playlistUri)?.name ?? playlistUri}`);
+            // Switch straight to the new genre — no pause. Pausing the device was leaving it
+            // idle-paused, which Spotify would drop from Connect (stale art / stuck progress).
+            const didPlay = await playPlaylist(playlistUri);
+            if (didPlay) {
+                // App just changed genre itself — ignore staff-override detection briefly so
+                // Spotify's stale currently-playing context isn't mistaken for a manual change.
+                appSwitchGraceUntilMsRef.current = Date.now() + APP_SWITCH_GRACE_MS;
+                setCurrentPlaylistUri(playlistUri);
+                currentPlaylistUriRef.current = playlistUri;
+                setPendingPlaylistUri(null);
+                pendingPlaylistUriRef.current = null;
+                songsRemainingRef.current = 0;
+                lastTrackedSongUriRef.current = null;
+                lastTrackProgressMsRef.current = null;
+                lastTrackDurationMsRef.current = null;
+            }
+        } finally {
+            clearGenreSwitchDelay();
+        }
     };
 
     useEffect(() => {
@@ -1464,7 +1439,6 @@ export default function App() {
             songsRemainingRef.current = 0;
             setSpotifyStatus("");
             clearGenreSwitchDelay();
-            await resumeSpotifyPlayback().catch(() => undefined);
         } else if (currentPlaylistUri !== winner.uri && winner.votes < MIN_VOTES_TO_SWITCH) {
             if (pendingPlaylistUriRef.current) {
                 setPendingPlaylistUri(null);
@@ -1472,7 +1446,6 @@ export default function App() {
                 songsRemainingRef.current = 0;
                 setSpotifyStatus("");
                 clearGenreSwitchDelay();
-                await resumeSpotifyPlayback().catch(() => undefined);
             }
             addLog(`NO SWITCH: ${winner.name} (${winner.votes}) below min (${MIN_VOTES_TO_SWITCH})`);
         }
