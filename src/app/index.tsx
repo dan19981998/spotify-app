@@ -60,7 +60,7 @@ const CURRENTLY_PLAYING_RETRY_FALLBACK_MS = 15000;
 // On the final song, start tight 1s polling only inside this window before the song ends.
 const FINAL_WINDOW_MS = 15000;
 // Switch when the song has this little time left (near the natural end).
-const FINAL_SWITCH_THRESHOLD_MS = 2000;
+const FINAL_SWITCH_THRESHOLD_MS = 500;
 // After the app switches genre itself, ignore staff-override detection for this long so
 // Spotify's slow-to-update currently-playing context can't be misread as a manual change.
 const APP_SWITCH_GRACE_MS = 12000;
