@@ -61,6 +61,9 @@ const CURRENTLY_PLAYING_RETRY_FALLBACK_MS = 15000;
 const FINAL_WINDOW_MS = 15000;
 // Switch when the song has this little time left (near the natural end).
 const FINAL_SWITCH_THRESHOLD_MS = 2000;
+// After the app switches genre itself, ignore staff-override detection for this long so
+// Spotify's slow-to-update currently-playing context can't be misread as a manual change.
+const APP_SWITCH_GRACE_MS = 12000;
 const MEMBER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 const RETURN_WINDOW_MS = 30 * 1000; // 30 seconds
 
@@ -691,6 +694,9 @@ export default function App() {
                 addLog(`SWITCH: → ${INITIAL_PLAYLISTS.find((p) => p.uri === playlistUri)?.name ?? playlistUri}`);
                 const didPlay = await playPlaylist(playlistUri);
                 if (didPlay) {
+                    // App just changed genre itself — ignore staff-override detection briefly so
+                    // Spotify's stale currently-playing context isn't mistaken for a manual change.
+                    appSwitchGraceUntilMsRef.current = Date.now() + APP_SWITCH_GRACE_MS;
                     setCurrentPlaylistUri(playlistUri);
                     currentPlaylistUriRef.current = playlistUri;
                     setPendingPlaylistUri(null);
@@ -853,6 +859,7 @@ export default function App() {
     const lastTrackDurationMsRef = useRef<number | null>(null);
     const currentlyPlayingBlockedUntilMsRef = useRef(0);
     const lastCurrentlyPlayingPollMsRef = useRef(0);
+    const appSwitchGraceUntilMsRef = useRef(0);
     const isSwitchingPlaylistRef = useRef(false);
     const genreSwitchDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const waveBarsRef = useRef<Animated.Value[]>([]);
@@ -1999,7 +2006,10 @@ export default function App() {
                     polledContextUri &&
                     polledContextUri.startsWith("spotify:playlist:") &&
                     currentPlaylistUriRef.current &&
-                    polledContextUri !== currentPlaylistUriRef.current
+                    polledContextUri !== currentPlaylistUriRef.current &&
+                    // Skip during the grace window after an app-initiated switch: Spotify may still
+                    // be reporting the old playlist, which would look like a staff change.
+                    appSwitchGraceUntilMsRef.current <= Date.now()
                 ) {
                     addLog(`STAFF OVERRIDE: ${INITIAL_PLAYLISTS.find((p) => p.uri === currentPlaylistUriRef.current)?.name ?? "?"} → ${INITIAL_PLAYLISTS.find((p) => p.uri === polledContextUri)?.name ?? polledContextUri}`);
 
