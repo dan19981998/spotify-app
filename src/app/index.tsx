@@ -1828,6 +1828,13 @@ export default function App() {
                     return;
                 }
 
+                // Re-validate after the await: the winner may have changed (or the countdown been
+                // cancelled) while the fetch was in flight. Never switch to a playlist that just lost.
+                if (isCancelled || isSwitchingPlaylistRef.current || pendingPlaylistUriRef.current !== targetUri) {
+                    stopFinalWindowPolling();
+                    return;
+                }
+
                 const pollSongUri = pollData?.item?.uri ?? null;
                 const pollProgress = pollData?.progress_ms;
                 const pollDuration = pollData?.item?.duration_ms;
