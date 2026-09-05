@@ -860,6 +860,7 @@ export default function App() {
     const currentlyPlayingBlockedUntilMsRef = useRef(0);
     const lastCurrentlyPlayingPollMsRef = useRef(0);
     const appSwitchGraceUntilMsRef = useRef(0);
+    const lastKnownDeviceIdRef = useRef<string | null>(null);
     const isSwitchingPlaylistRef = useRef(false);
     const genreSwitchDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const waveBarsRef = useRef<Animated.Value[]>([]);
@@ -1051,11 +1052,12 @@ export default function App() {
             return false;
         }
 
-        // Only fetch/transfer devices on first play. If music is already playing,
-        // the device is already active — re-transferring can disconnect the speaker.
+        // Resolve which device to play on. Fetching the device list is read-only and safe on
+        // every play; only *transferring* playback can disconnect the speaker, so we transfer
+        // only when the target device isn't already active.
         let deviceId: string | null = null;
 
-        if (!currentPlaylistUri) {
+        {
             const devicesResponse = await fetch("https://api.spotify.com/v1/me/player/devices", {
                 headers: { Authorization: `Bearer ${accessToken}` },
             });
@@ -1066,16 +1068,33 @@ export default function App() {
                 };
 
                 const activeDevice = devicesData.devices.find((d) => d.is_active);
+                // Prefer the device we last played on (the puck) when nothing is active.
+                const rememberedDevice = lastKnownDeviceIdRef.current
+                    ? devicesData.devices.find((d) => d.id === lastKnownDeviceIdRef.current)
+                    : undefined;
                 const anyDevice = devicesData.devices[0] ?? null;
 
-                // Sync volume from the active (or first) device
-                const volDevice = activeDevice ?? anyDevice;
+                // Sync volume from the active (or best-guess) device
+                const volDevice = activeDevice ?? rememberedDevice ?? anyDevice;
                 if (volDevice?.volume_percent != null) {
                     setVolumePercent(Math.round(volDevice.volume_percent / 5));
                 }
 
                 if (activeDevice) {
+                    // Already active — just target it, no transfer (safe, won't disconnect the speaker).
                     deviceId = activeDevice.id;
+                } else if (rememberedDevice) {
+                    // The puck is present but not active — wake it up.
+                    deviceId = rememberedDevice.id;
+                    await fetch("https://api.spotify.com/v1/me/player", {
+                        method: "PUT",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({ device_ids: [rememberedDevice.id], play: false }),
+                    });
+                    await new Promise((resolve) => setTimeout(resolve, 800));
                 } else if (anyDevice) {
                     // Transfer playback to the first available device.
                     deviceId = anyDevice.id;
@@ -1092,6 +1111,11 @@ export default function App() {
                 } else {
                     setSpotifyStatus("No Spotify device found. Open Spotify on a device first, then vote.");
                     return false;
+                }
+
+                // Remember the resolved device (the puck) so future switches can re-target it.
+                if (deviceId) {
+                    lastKnownDeviceIdRef.current = deviceId;
                 }
             } else if ((devicesResponse.status === 401 || devicesResponse.status === 403) && !hasRetried && !isRecoveringSpotifyRef.current) {
                 isRecoveringSpotifyRef.current = true;
@@ -1116,16 +1140,25 @@ export default function App() {
 
         const playBody: Record<string, unknown> = { context_uri: playlistUri };
 
-        const response = await fetch("https://api.spotify.com/v1/me/player/play", {
-            method: "PUT",
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(playBody),
-        });
+        const response = await fetch(
+            `https://api.spotify.com/v1/me/player/play${deviceId ? `?device_id=${deviceId}` : ""}`,
+            {
+                method: "PUT",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(playBody),
+            }
+        );
 
         if (!response.ok) {
+            // No active device (Spotify's device dropped off between resolving it and playing).
+            // Re-resolve the device and retry the play once.
+            if (response.status === 404 && !hasRetried) {
+                return playPlaylist(playlistUri, true);
+            }
+
             if ((response.status === 401 || response.status === 403) && !hasRetried && !isRecoveringSpotifyRef.current) {
                 isRecoveringSpotifyRef.current = true;
                 const reconnected = await handleSpotifyConnect(true);
