@@ -53,6 +53,14 @@ const CROSSFADE_SAFE_COMPLETION_WINDOW_MS = SPOTIFY_CROSSFADE_MS + 5000;
 const PRE_SWITCH_BUFFER_MS = 2000;
 const MIN_COMPLETION_RATIO = 0.9;
 const MIN_PLAYED_WITHOUT_DURATION_MS = 45000;
+const CURRENTLY_PLAYING_MIN_GAP_MS = 1200;
+const CURRENTLY_PLAYING_RETRY_MIN_MS = 5000;
+const CURRENTLY_PLAYING_RETRY_MAX_MS = 60000;
+const CURRENTLY_PLAYING_RETRY_FALLBACK_MS = 15000;
+// On the final song, start tight 1s polling only inside this window before the song ends.
+const FINAL_WINDOW_MS = 15000;
+// Switch when the song has this little time left (near the natural end).
+const FINAL_SWITCH_THRESHOLD_MS = 2000;
 const MEMBER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 const RETURN_WINDOW_MS = 30 * 1000; // 30 seconds
 
@@ -843,6 +851,8 @@ export default function App() {
     const lastTrackedSongUriRef = useRef<string | null>(null);
     const lastTrackProgressMsRef = useRef<number | null>(null);
     const lastTrackDurationMsRef = useRef<number | null>(null);
+    const currentlyPlayingBlockedUntilMsRef = useRef(0);
+    const lastCurrentlyPlayingPollMsRef = useRef(0);
     const isSwitchingPlaylistRef = useRef(false);
     const genreSwitchDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const waveBarsRef = useRef<Animated.Value[]>([]);
@@ -897,6 +907,19 @@ export default function App() {
                 useNativeDriver: true,
             }),
         ]).start();
+    };
+
+    const applyCurrentlyPlayingRateLimit = (response: Response) => {
+        if (response.status !== 429) {
+            return;
+        }
+        const retryAfterRaw = response.headers.get("retry-after");
+        const retryAfterSeconds = retryAfterRaw ? Number.parseInt(retryAfterRaw, 10) : Number.NaN;
+        const retryAfterMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? retryAfterSeconds * 1000
+            : CURRENTLY_PLAYING_RETRY_FALLBACK_MS;
+        const boundedRetryMs = Math.min(Math.max(retryAfterMs, CURRENTLY_PLAYING_RETRY_MIN_MS), CURRENTLY_PLAYING_RETRY_MAX_MS);
+        currentlyPlayingBlockedUntilMsRef.current = Date.now() + boundedRetryMs;
     };
 
     const TEST_ID = "4006977";
@@ -1622,17 +1645,21 @@ export default function App() {
             return;
         }
 
-        let switchBackoff = 0;
-
         const checkPendingSwitch = async () => {
-            if (switchBackoff > 0) {
-                switchBackoff--;
+            const nowMs = Date.now();
+            if (currentlyPlayingBlockedUntilMsRef.current > nowMs) {
                 return;
             }
+            if (nowMs - lastCurrentlyPlayingPollMsRef.current < CURRENTLY_PLAYING_MIN_GAP_MS) {
+                return;
+            }
+
             const accessToken = await getValidSpotifyAccessToken();
             if (!accessToken) {
                 return;
             }
+
+            lastCurrentlyPlayingPollMsRef.current = Date.now();
 
             const response = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
                 headers: {
@@ -1640,8 +1667,12 @@ export default function App() {
                 },
             });
 
-            if (!response.ok || response.status === 204) {
-                if (response.status === 429) switchBackoff = 120;
+            if (response.status === 204) {
+                return;
+            }
+
+            if (!response.ok) {
+                applyCurrentlyPlayingRateLimit(response);
                 return;
             }
 
@@ -1702,15 +1733,33 @@ export default function App() {
 
             const timeRemainingMs =
                 hasValidProgress && hasValidDuration ? Math.max(0, duration - progress) : null;
-            const shouldPreemptiveSwitch =
-                songsRemainingRef.current === 1 &&
-                typeof timeRemainingMs === "number" &&
-                timeRemainingMs <= SPOTIFY_CROSSFADE_MS + PRE_SWITCH_BUFFER_MS;
             const shouldSwitchAfterCountdown = songsRemainingRef.current <= 0;
 
-            // Pause now, then switch after a 3 second silence so the genre change is clean.
+            // On the final song: let it play, and only start tight 1s polling in the last 15s
+            // so we can switch right as the song finishes (no early cut-off, minimal API calls).
             if (
-                (shouldPreemptiveSwitch || shouldSwitchAfterCountdown) &&
+                songsRemainingRef.current === 1 &&
+                typeof timeRemainingMs === "number" &&
+                currentSongUri &&
+                pendingPlaylistUri &&
+                pendingPlaylistUriRef.current &&
+                !isSwitchingPlaylistRef.current &&
+                finalWindowTimer === null &&
+                finalWindowPollTimer === null
+            ) {
+                const startInMs = Math.max(0, timeRemainingMs - FINAL_WINDOW_MS);
+                const targetUri = pendingPlaylistUri;
+                const targetSongUri = currentSongUri;
+                addLog(`FINAL WINDOW: 1s polling starts in ${Math.round(startInMs / 1000)}s`);
+                finalWindowTimer = setTimeout(() => {
+                    finalWindowTimer = null;
+                    startFinalWindowPolling(targetUri, targetSongUri);
+                }, startInMs);
+            }
+
+            // Fallback: if the countdown already reached zero, switch now.
+            if (
+                shouldSwitchAfterCountdown &&
                 pendingPlaylistUri &&
                 pendingPlaylistUriRef.current &&
                 !isSwitchingPlaylistRef.current
@@ -1719,21 +1768,97 @@ export default function App() {
             }
         };
 
-        // Poll lightly during countdown, then tightly on the final song so pause timing is closer.
+        // Base poll every 8 seconds to track song completions (3 -> 2 -> 1).
         let isCancelled = false;
         let pollTimer: ReturnType<typeof setTimeout> | null = null;
+        let finalWindowTimer: ReturnType<typeof setTimeout> | null = null;
+        let finalWindowPollTimer: ReturnType<typeof setInterval> | null = null;
+
+        const stopFinalWindowPolling = () => {
+            if (finalWindowPollTimer) {
+                clearInterval(finalWindowPollTimer);
+                finalWindowPollTimer = null;
+            }
+        };
+
+        // In the last ~15s of the final song, poll every 1s and switch right at the natural end.
+        const startFinalWindowPolling = (targetUri: string, targetSongUri: string) => {
+            if (isCancelled || finalWindowPollTimer !== null) {
+                return;
+            }
+            addLog(`FINAL WINDOW: polling every 1s`);
+            finalWindowPollTimer = setInterval(async () => {
+                if (isCancelled || isSwitchingPlaylistRef.current) {
+                    stopFinalWindowPolling();
+                    return;
+                }
+                if (pendingPlaylistUriRef.current !== targetUri) {
+                    stopFinalWindowPolling();
+                    return;
+                }
+
+                // Respect the shared 429 cooldown so a rate limit here does not keep hammering.
+                if (currentlyPlayingBlockedUntilMsRef.current > Date.now()) {
+                    return;
+                }
+
+                const accessToken = await getValidSpotifyAccessToken();
+                if (!accessToken) {
+                    return;
+                }
+
+                lastCurrentlyPlayingPollMsRef.current = Date.now();
+                let pollData: any = null;
+                try {
+                    const response = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
+                        headers: { Authorization: `Bearer ${accessToken}` },
+                    });
+                    if (response.ok && response.status !== 204) {
+                        const text = await response.text();
+                        if (text) {
+                            pollData = JSON.parse(text);
+                        }
+                    } else if (response.status === 429) {
+                        applyCurrentlyPlayingRateLimit(response);
+                        return;
+                    } else {
+                        return;
+                    }
+                } catch {
+                    return;
+                }
+
+                const pollSongUri = pollData?.item?.uri ?? null;
+                const pollProgress = pollData?.progress_ms;
+                const pollDuration = pollData?.item?.duration_ms;
+
+                // Song already advanced to the next track (natural end) - switch now.
+                if (pollSongUri && pollSongUri !== targetSongUri) {
+                    addLog(`FINAL WINDOW: song ended, switching`);
+                    stopFinalWindowPolling();
+                    void scheduleGenreSwitch(targetUri);
+                    return;
+                }
+
+                // Still on the final song - switch once it is basically finished.
+                if (typeof pollProgress === "number" && typeof pollDuration === "number" && pollDuration > 0) {
+                    const remainingMs = Math.max(0, pollDuration - pollProgress);
+                    if (remainingMs <= FINAL_SWITCH_THRESHOLD_MS) {
+                        addLog(`FINAL WINDOW: at end (${Math.round(remainingMs / 1000)}s left), switching`);
+                        stopFinalWindowPolling();
+                        void scheduleGenreSwitch(targetUri);
+                    }
+                }
+            }, 1000);
+        };
 
         const queueNextPoll = () => {
             if (isCancelled) {
                 return;
             }
-            const currentProgressMs = lastTrackProgressMsRef.current ?? 0;
-            const onFinalSong = songsRemainingRef.current <= 1;
-            const shouldTightPoll = onFinalSong && currentProgressMs >= 120000;
-            const delayMs = shouldTightPoll ? 1000 : 8000;
             pollTimer = setTimeout(() => {
                 void runPollLoop();
-            }, delayMs);
+            }, 8000);
         };
 
         const runPollLoop = async () => {
@@ -1745,6 +1870,11 @@ export default function App() {
 
         return () => {
             isCancelled = true;
+            if (finalWindowTimer) {
+                clearTimeout(finalWindowTimer);
+                finalWindowTimer = null;
+            }
+            stopFinalWindowPolling();
             if (pollTimer) {
                 clearTimeout(pollTimer);
                 pollTimer = null;
@@ -1758,12 +1888,15 @@ export default function App() {
         }
 
         let isActive = true;
-        let backoffCount = 0;
 
         const refreshCurrentTrackArtwork = async () => {
-            if (backoffCount > 0) {
-                backoffCount--;
-                setPollingDebug(`[${new Date().toLocaleTimeString()}] Rate limited — waiting ${Math.round(backoffCount * 15 / 60)} min before retry`);
+            const nowMs = Date.now();
+            if (currentlyPlayingBlockedUntilMsRef.current > nowMs) {
+                const waitSeconds = Math.max(1, Math.ceil((currentlyPlayingBlockedUntilMsRef.current - nowMs) / 1000));
+                setPollingDebug(`[${new Date().toLocaleTimeString()}] Rate limited — retry in ${waitSeconds}s`);
+                return;
+            }
+            if (nowMs - lastCurrentlyPlayingPollMsRef.current < CURRENTLY_PLAYING_MIN_GAP_MS) {
                 return;
             }
             const accessToken = await getValidSpotifyAccessToken();
@@ -1771,6 +1904,8 @@ export default function App() {
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] No token. sessionRef: ${spotifySessionRef.current ? "exists" : "null"}`);
                 return;
             }
+
+            lastCurrentlyPlayingPollMsRef.current = Date.now();
 
             // Use /currently-playing — same endpoint that worked for months
             const response = await fetch("https://api.spotify.com/v1/me/player/currently-playing", {
@@ -1786,7 +1921,7 @@ export default function App() {
 
             if (!response.ok) {
                 setPollingDebug(`[${new Date().toLocaleTimeString()}] API error ${response.status}: ${response.statusText}`);
-                if (response.status === 429) backoffCount = 120;
+                applyCurrentlyPlayingRateLimit(response);
                 return;
             }
 
